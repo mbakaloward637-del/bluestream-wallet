@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 
@@ -19,24 +18,14 @@ const WalletCard = ({ balance, currency, walletNumber, userName }: WalletCardPro
     }).format(amount);
 
   const currencySymbols: Record<string, string> = {
-    USD: "$",
-    KES: "KSh",
-    NGN: "₦",
-    GBP: "£",
-    EUR: "€",
+    USD: "$", KES: "KSh", NGN: "₦", GBP: "£", EUR: "€",
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className="relative overflow-hidden rounded-2xl p-6 gradient-primary"
-      style={{ boxShadow: "0 20px 60px hsl(217 91% 60% / 0.3)" }}
-    >
-      {/* Decorative circles */}
-      <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-foreground/5" />
-      <div className="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-foreground/5" />
+    <div className="relative overflow-hidden rounded-2xl bg-primary p-6 text-primary-foreground">
+      {/* Subtle decoration */}
+      <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary-foreground/5" />
+      <div className="absolute -bottom-6 -left-6 h-24 w-24 rounded-full bg-primary-foreground/5" />
 
       <div className="relative z-10">
         <div className="flex items-center justify-between">
@@ -49,16 +38,11 @@ const WalletCard = ({ balance, currency, walletNumber, userName }: WalletCardPro
           </button>
         </div>
 
-        <motion.h2
-          className="mt-2 text-3xl font-bold text-primary-foreground"
-          key={showBalance ? "show" : "hide"}
-          initial={{ opacity: 0, y: 5 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <h2 className="mt-2 text-3xl font-bold">
           {showBalance
             ? `${currencySymbols[currency] || currency} ${formatBalance(balance)}`
             : "••••••"}
-        </motion.h2>
+        </h2>
 
         <div className="mt-6 flex items-end justify-between">
           <div>
@@ -73,7 +57,7 @@ const WalletCard = ({ balance, currency, walletNumber, userName }: WalletCardPro
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 };
 

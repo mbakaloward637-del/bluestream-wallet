@@ -1,5 +1,4 @@
 import { ArrowDownLeft, ArrowUpRight, ArrowUpDown, Download, Wallet } from "lucide-react";
-import { motion } from "framer-motion";
 
 export interface Transaction {
   id: string;
@@ -9,6 +8,7 @@ export interface Transaction {
   description: string;
   date: string;
   status: "completed" | "pending" | "failed";
+  reference?: string;
 }
 
 const iconMap = {
@@ -24,7 +24,7 @@ const colorMap = {
   send: "text-destructive",
   receive: "text-success",
   withdraw: "text-warning",
-  exchange: "text-accent",
+  exchange: "text-primary",
 };
 
 const bgMap = {
@@ -32,28 +32,27 @@ const bgMap = {
   send: "bg-destructive/10",
   receive: "bg-success/10",
   withdraw: "bg-warning/10",
-  exchange: "bg-accent/10",
+  exchange: "bg-primary/10",
 };
 
-const TransactionItem = ({ tx }: { tx: Transaction }) => {
+const TransactionItem = ({ tx, onClick }: { tx: Transaction; onClick?: () => void }) => {
   const Icon = iconMap[tx.type];
   const isPositive = tx.type === "deposit" || tx.type === "receive";
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-secondary/50"
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-3 p-3 transition-colors hover:bg-secondary/50 text-left"
     >
       <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${bgMap[tx.type]}`}>
         <Icon size={18} className={colorMap[tx.type]} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-foreground truncate">{tx.description}</p>
+        <p className="text-sm font-medium text-foreground truncate">{tx.description}</p>
         <p className="text-xs text-muted-foreground">{tx.date}</p>
       </div>
       <div className="text-right">
-        <p className={`text-sm font-bold ${isPositive ? "text-success" : "text-foreground"}`}>
+        <p className={`text-sm font-semibold ${isPositive ? "text-success" : "text-foreground"}`}>
           {isPositive ? "+" : "-"}{tx.currency} {Math.abs(tx.amount).toFixed(2)}
         </p>
         <p className={`text-[10px] font-medium capitalize ${
@@ -62,7 +61,7 @@ const TransactionItem = ({ tx }: { tx: Transaction }) => {
           {tx.status}
         </p>
       </div>
-    </motion.div>
+    </button>
   );
 };
 
