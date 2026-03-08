@@ -16,7 +16,7 @@ const Login = () => {
     if (login(email, password)) {
       const found = demoUsers.find((u) => u.email === email);
       toast.success("Welcome back!");
-      navigate(found && (found.role === "admin" || found.role === "superadmin") ? "/admin/dashboard" : "/dashboard");
+      navigate(found?.role === "superadmin" ? "/admin/super-dashboard" : found?.role === "admin" ? "/admin/dashboard" : "/dashboard");
     } else {
       toast.error("Invalid credentials. Try a demo account below.");
     }
@@ -26,7 +26,7 @@ const Login = () => {
     if (login(demoEmail, "demo")) {
       const found = demoUsers.find((u) => u.email === demoEmail);
       toast.success("Logged in as demo user!");
-      navigate(found && (found.role === "admin" || found.role === "superadmin") ? "/admin/dashboard" : "/dashboard");
+      navigate(found?.role === "superadmin" ? "/admin/super-dashboard" : found?.role === "admin" ? "/admin/dashboard" : "/dashboard");
     }
   };
 
