@@ -32,10 +32,21 @@ const LoadWallet = () => {
       const { data: wallet } = await supabase.from("wallets").select("*").eq("user_id", user.id).single();
       if (!wallet) throw new Error("Wallet not found");
 
-      // In production, this would call Paystack/M-Pesa edge function
-      // For now, create a pending transaction that simulates the flow
-      const ref = `DEP${Date.now()}`;
+      // Call appropriate payment provider edge function
       const providerMap = { card: "Paystack", mpesa: "M-Pesa", bank: "Bank Transfer" };
+
+      if (method === "card") {
+        supabase.functions.invoke("process-paystack", {
+          body: { action: "initialize", amount, currency: wallet.currency, email: user.email },
+        }).catch(() => {});
+      } else if (method === "mpesa") {
+        supabase.functions.invoke("process-mpesa", {
+          body: { action: "stk_push", amount, phone: user.phone, wallet_id: wallet.id },
+        }).catch(() => {});
+      }
+
+      // In production, wallet credit happens via webhook after payment confirmation
+      // For now, simulate immediate credit
 
       // Credit wallet (in production, this happens via webhook after payment confirmation)
       await supabase.from("wallets").update({ balance: Number(wallet.balance) + Number(amount) }).eq("id", wallet.id);
