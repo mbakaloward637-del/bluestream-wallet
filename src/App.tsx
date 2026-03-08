@@ -35,6 +35,16 @@ import AdminReports from "./pages/admin/AdminReports";
 import AdminSecurity from "./pages/admin/AdminSecurity";
 import AdminLogs from "./pages/admin/AdminLogs";
 
+// Super Admin pages
+import SuperAdminDashboard from "./pages/admin/SuperAdminDashboard";
+import SuperAdminManagement from "./pages/admin/SuperAdminManagement";
+import SuperAdminWalletConfig from "./pages/admin/SuperAdminWalletConfig";
+import SuperAdminPaymentGateway from "./pages/admin/SuperAdminPaymentGateway";
+import SuperAdminExchangeRates from "./pages/admin/SuperAdminExchangeRates";
+import SuperAdminFees from "./pages/admin/SuperAdminFees";
+import SuperAdminSettings from "./pages/admin/SuperAdminSettings";
+import SuperAdminAuditLogs from "./pages/admin/SuperAdminAuditLogs";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -76,6 +86,16 @@ const App = () => (
               <Route path="reports" element={<AdminReports />} />
               <Route path="security" element={<AdminSecurity />} />
               <Route path="logs" element={<AdminLogs />} />
+
+              {/* Super Admin exclusive routes */}
+              <Route path="super-dashboard" element={<SuperAdminDashboard />} />
+              <Route path="admin-management" element={<SuperAdminManagement />} />
+              <Route path="wallet-config" element={<SuperAdminWalletConfig />} />
+              <Route path="payment-gateways" element={<SuperAdminPaymentGateway />} />
+              <Route path="exchange-rates" element={<SuperAdminExchangeRates />} />
+              <Route path="fees" element={<SuperAdminFees />} />
+              <Route path="settings" element={<SuperAdminSettings />} />
+              <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />

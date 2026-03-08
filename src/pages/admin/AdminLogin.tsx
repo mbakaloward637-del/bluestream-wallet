@@ -6,7 +6,7 @@ import { Mail, Lock, Shield, ArrowRight, KeyRound } from "lucide-react";
 
 const AdminLogin = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
@@ -37,10 +37,9 @@ const AdminLogin = () => {
   };
 
   const handleOtp = () => {
-    // Mock OTP verification - accept any 6-digit code
     if (otp.length >= 4) {
       toast.success("Authentication successful");
-      navigate("/admin/dashboard");
+      navigate(user?.role === "superadmin" ? "/admin/super-dashboard" : "/admin/dashboard");
     } else {
       toast.error("Invalid OTP. Enter the code sent to your device.");
     }
