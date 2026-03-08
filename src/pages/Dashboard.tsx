@@ -2,25 +2,56 @@ import WalletCard from "@/components/WalletCard";
 import QuickActions from "@/components/QuickActions";
 import TransactionItem from "@/components/TransactionItem";
 import BottomNav from "@/components/BottomNav";
-import { mockTransactions } from "@/data/mockData";
 import { useAuth } from "@/context/AuthContext";
-import { Bell, Shield, LogOut } from "lucide-react";
+import { Bell, Shield, LogOut, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
+import type { Transaction } from "@/components/TransactionItem";
 
 const Dashboard = () => {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, logout, loading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!user) navigate("/login");
-  }, [user, navigate]);
+    if (!loading && !user) navigate("/login");
+  }, [user, loading, navigate]);
 
-  if (!user) return null;
+  const { data: transactions = [] } = useQuery({
+    queryKey: ["recent-transactions", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .or(`sender_user_id.eq.${user!.id},receiver_user_id.eq.${user!.id}`)
+        .order("created_at", { ascending: false })
+        .limit(4);
+      if (error) throw error;
+      return (data || []).map((tx): Transaction => ({
+        id: tx.id,
+        type: tx.type as Transaction["type"],
+        amount: Number(tx.amount),
+        currency: tx.currency,
+        description: tx.description || "",
+        date: new Date(tx.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+        status: tx.status as Transaction["status"],
+        reference: tx.reference,
+      }));
+    },
+  });
+
+  if (loading || !user) {
+    return (
+      <div className="page-container flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="page-container">
-      {/* Header */}
       <div className="flex items-center justify-between px-5 pt-6 pb-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate("/profile")} className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
@@ -45,7 +76,7 @@ const Dashboard = () => {
           <button onClick={() => navigate("/notifications")} className="back-btn">
             <Bell size={18} className="text-muted-foreground" />
           </button>
-          <button onClick={() => { logout(); navigate("/login"); }} className="back-btn">
+          <button onClick={async () => { await logout(); navigate("/login"); }} className="back-btn">
             <LogOut size={18} className="text-muted-foreground" />
           </button>
         </div>
@@ -70,9 +101,13 @@ const Dashboard = () => {
             <button onClick={() => navigate("/transactions")} className="text-xs font-semibold text-primary">See All</button>
           </div>
           <div className="section-card p-0 divide-y divide-border">
-            {mockTransactions.slice(0, 4).map((tx) => (
-              <TransactionItem key={tx.id} tx={tx} onClick={() => navigate(`/transactions?ref=${tx.id}`)} />
-            ))}
+            {transactions.length === 0 ? (
+              <p className="p-4 text-center text-xs text-muted-foreground">No transactions yet</p>
+            ) : (
+              transactions.map((tx) => (
+                <TransactionItem key={tx.id} tx={tx} onClick={() => navigate(`/transactions?ref=${tx.id}`)} />
+              ))
+            )}
           </div>
         </div>
       </div>

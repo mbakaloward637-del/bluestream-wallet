@@ -1,14 +1,40 @@
 import { useState } from "react";
-import { ArrowLeft, Filter, X, Download, Share2 } from "lucide-react";
+import { ArrowLeft, Filter, X, Download, Share2, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import TransactionItem from "@/components/TransactionItem";
 import type { Transaction } from "@/components/TransactionItem";
 import BottomNav from "@/components/BottomNav";
-import { mockTransactions } from "@/data/mockData";
+import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 
 const Transactions = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+
+  const { data: transactions = [], isLoading } = useQuery({
+    queryKey: ["all-transactions", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .or(`sender_user_id.eq.${user!.id},receiver_user_id.eq.${user!.id}`)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data || []).map((tx): Transaction => ({
+        id: tx.id,
+        type: tx.type as Transaction["type"],
+        amount: Number(tx.amount),
+        currency: tx.currency,
+        description: tx.description || "",
+        date: new Date(tx.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+        status: tx.status as Transaction["status"],
+        reference: tx.reference,
+      }));
+    },
+  });
 
   return (
     <div className="page-container">
@@ -25,14 +51,19 @@ const Transactions = () => {
           </button>
         </div>
 
-        <div className="section-card p-0 divide-y divide-border">
-          {mockTransactions.map((tx) => (
-            <TransactionItem key={tx.id} tx={tx} onClick={() => setSelectedTx(tx)} />
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>
+        ) : transactions.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground py-12">No transactions yet</p>
+        ) : (
+          <div className="section-card p-0 divide-y divide-border">
+            {transactions.map((tx) => (
+              <TransactionItem key={tx.id} tx={tx} onClick={() => setSelectedTx(tx)} />
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Receipt Modal */}
       {selectedTx && (
         <div className="fixed inset-0 z-50 bg-foreground/20 flex items-end justify-center">
           <div className="w-full max-w-md bg-card rounded-t-3xl p-6 space-y-4 animate-in slide-in-from-bottom">
@@ -42,10 +73,9 @@ const Transactions = () => {
                 <X size={16} className="text-foreground" />
               </button>
             </div>
-
             <div className="space-y-3">
               {[
-                { label: "Reference", value: `TXN${selectedTx.id.padStart(8, "0")}` },
+                { label: "Reference", value: selectedTx.reference || selectedTx.id },
                 { label: "Type", value: selectedTx.type },
                 { label: "Description", value: selectedTx.description },
                 { label: "Amount", value: `${selectedTx.currency} ${selectedTx.amount.toFixed(2)}` },
@@ -58,7 +88,6 @@ const Transactions = () => {
                 </div>
               ))}
             </div>
-
             <div className="flex gap-3 pt-2">
               <button className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
                 <Download size={16} /> Download

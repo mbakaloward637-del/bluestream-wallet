@@ -1,7 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, User, Mail, Phone, Lock, MapPin, Calendar, Shield, Upload, Camera, Search, ChevronDown, Globe, Banknote } from "lucide-react";
+import { ArrowLeft, ArrowRight, User, Mail, Phone, Lock, MapPin, Calendar, Shield, Upload, Camera, Search, ChevronDown, Globe, Banknote, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+import { toast } from "sonner";
 import { countries, getUniqueCurrencies } from "@/data/countries";
 import type { CountryData } from "@/data/countries";
 
@@ -97,9 +99,25 @@ const SearchableDropdown = ({ label, icon, placeholder, value, onSelect, items }
 
 const Register = () => {
   const navigate = useNavigate();
+  const { register } = useAuth();
   const [step, setStep] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("");
   const [selectedCurrency, setSelectedCurrency] = useState("");
+
+  // Form fields
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [middleName, setMiddleName] = useState("");
+  const [dob, setDob] = useState("");
+  const [gender, setGender] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pin, setPin] = useState("");
 
   const countryItems = useMemo(
     () => countries.map((c) => ({ id: c.code, label: c.name, sublabel: `${c.dialCode} · ${c.currencyCode}`, prefix: `${c.flag} ` })),
@@ -111,7 +129,6 @@ const Register = () => {
     return unique.map((c) => ({ id: c.code, label: `${c.code} — ${c.name}` }));
   }, []);
 
-  // Auto-set currency when country changes
   useEffect(() => {
     if (selectedCountry) {
       const country = countries.find((c) => c.code === selectedCountry);
@@ -120,6 +137,35 @@ const Register = () => {
   }, [selectedCountry]);
 
   const selectedCountryData: CountryData | undefined = countries.find((c) => c.code === selectedCountry);
+
+  const handleRegister = async () => {
+    if (password !== confirmPassword) { toast.error("Passwords don't match"); return; }
+    if (password.length < 8) { toast.error("Password must be at least 8 characters"); return; }
+    if (pin.length < 4) { toast.error("PIN must be at least 4 digits"); return; }
+
+    setLoading(true);
+    const result = await register(email, password, {
+      first_name: firstName,
+      last_name: lastName,
+      middle_name: middleName,
+      phone: selectedCountryData ? `${selectedCountryData.dialCode}${phone}` : phone,
+      country: selectedCountryData?.name || "",
+      country_code: selectedCountry,
+      currency: selectedCurrency,
+      city,
+      address,
+      gender,
+      date_of_birth: dob,
+    });
+    setLoading(false);
+
+    if (result.success) {
+      toast.success("Account created! Please check your email to verify.");
+      navigate("/login");
+    } else {
+      toast.error(result.error || "Registration failed");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -131,7 +177,6 @@ const Register = () => {
           <h1 className="text-lg font-bold text-foreground">Create Account</h1>
         </div>
 
-        {/* Progress */}
         <div className="flex gap-2 mb-6">
           {steps.map((s, i) => (
             <div key={s} className="flex-1">
@@ -149,24 +194,24 @@ const Register = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label-text flex items-center gap-1"><User size={12}/>First Name</label>
-                  <input className="input-field" placeholder="James" />
+                  <input className="input-field" placeholder="James" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
                 </div>
                 <div>
                   <label className="label-text">Last Name</label>
-                  <input className="input-field" placeholder="Mwangi" />
+                  <input className="input-field" placeholder="Mwangi" value={lastName} onChange={(e) => setLastName(e.target.value)} />
                 </div>
               </div>
               <div>
                 <label className="label-text">Middle Name (optional)</label>
-                <input className="input-field" placeholder="Kiptoo" />
+                <input className="input-field" placeholder="Kiptoo" value={middleName} onChange={(e) => setMiddleName(e.target.value)} />
               </div>
               <div>
                 <label className="label-text flex items-center gap-1"><Calendar size={12}/>Date of Birth</label>
-                <input type="date" className="input-field" />
+                <input type="date" className="input-field" value={dob} onChange={(e) => setDob(e.target.value)} />
               </div>
               <div>
                 <label className="label-text">Gender</label>
-                <select className="input-field">
+                <select className="input-field" value={gender} onChange={(e) => setGender(e.target.value)}>
                   <option value="">Select gender</option>
                   <option>Male</option>
                   <option>Female</option>
@@ -174,36 +219,15 @@ const Register = () => {
                 </select>
               </div>
 
-              <SearchableDropdown
-                label="Country"
-                icon={<Globe size={12} />}
-                placeholder="Select your country"
-                value={selectedCountry}
-                onSelect={setSelectedCountry}
-                items={countryItems}
-              />
-
-              <SearchableDropdown
-                label="Wallet Currency"
-                icon={<Banknote size={12} />}
-                placeholder="Select wallet currency"
-                value={selectedCurrency}
-                onSelect={setSelectedCurrency}
-                items={currencyItems}
-              />
+              <SearchableDropdown label="Country" icon={<Globe size={12} />} placeholder="Select your country" value={selectedCountry} onSelect={setSelectedCountry} items={countryItems} />
+              <SearchableDropdown label="Wallet Currency" icon={<Banknote size={12} />} placeholder="Select wallet currency" value={selectedCurrency} onSelect={setSelectedCurrency} items={currencyItems} />
 
               {selectedCountry && selectedCurrency && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-xl border border-primary/20 bg-primary/5 p-3 flex items-center gap-3"
-                >
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border border-primary/20 bg-primary/5 p-3 flex items-center gap-3">
                   <span className="text-2xl">{selectedCountryData?.flag}</span>
                   <div>
                     <p className="text-xs font-semibold text-foreground">{selectedCountryData?.name}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      Default wallet currency: <span className="font-bold text-primary">{selectedCurrency}</span>
-                    </p>
+                    <p className="text-[10px] text-muted-foreground">Default wallet currency: <span className="font-bold text-primary">{selectedCurrency}</span></p>
                   </div>
                 </motion.div>
               )}
@@ -218,28 +242,20 @@ const Register = () => {
                   <div className="input-field w-24 flex items-center justify-center text-sm shrink-0">
                     {selectedCountryData ? `${selectedCountryData.flag} ${selectedCountryData.dialCode}` : "+---"}
                   </div>
-                  <input type="tel" className="input-field flex-1" placeholder="712 345 678" />
+                  <input type="tel" className="input-field flex-1" placeholder="712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
                 </div>
               </div>
               <div>
                 <label className="label-text flex items-center gap-1"><Mail size={12}/>Email Address</label>
-                <input type="email" className="input-field" placeholder="james@email.com" />
+                <input type="email" className="input-field" placeholder="james@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
               </div>
               <div>
                 <label className="label-text flex items-center gap-1"><MapPin size={12}/>Physical Address</label>
-                <input className="input-field" placeholder="123 Kenyatta Ave" />
+                <input className="input-field" placeholder="123 Kenyatta Ave" value={address} onChange={(e) => setAddress(e.target.value)} />
               </div>
               <div>
                 <label className="label-text">City</label>
-                <input className="input-field" placeholder="Nairobi" />
-              </div>
-              <div className="rounded-xl border border-border bg-secondary/30 p-3">
-                <p className="text-xs text-muted-foreground">
-                  Country: <span className="font-semibold text-foreground">{selectedCountryData?.flag} {selectedCountryData?.name || "Not selected"}</span>
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Wallet Currency: <span className="font-semibold text-primary">{selectedCurrency || "Not selected"}</span>
-                </p>
+                <input className="input-field" placeholder="Nairobi" value={city} onChange={(e) => setCity(e.target.value)} />
               </div>
             </motion.div>
           )}
@@ -248,16 +264,17 @@ const Register = () => {
             <motion.div key="s2" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} className="space-y-4">
               <div>
                 <label className="label-text flex items-center gap-1"><Lock size={12}/>Password</label>
-                <input type="password" className="input-field" placeholder="Minimum 8 characters" />
+                <input type="password" className="input-field" placeholder="Minimum 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} />
                 <p className="text-[10px] text-muted-foreground mt-1">Must be at least 8 characters</p>
               </div>
               <div>
                 <label className="label-text">Confirm Password</label>
-                <input type="password" className="input-field" placeholder="••••••••" />
+                <input type="password" className="input-field" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
               </div>
               <div>
                 <label className="label-text flex items-center gap-1"><Shield size={12}/>Transaction PIN (4–6 digits)</label>
-                <input type="password" inputMode="numeric" maxLength={6} className="input-field text-center tracking-[0.5em]" placeholder="••••" />
+                <input type="password" inputMode="numeric" maxLength={6} className="input-field text-center tracking-[0.5em]" placeholder="••••"
+                  value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} />
                 <p className="text-[10px] text-muted-foreground mt-1">Numeric only, used for all transactions</p>
               </div>
             </motion.div>
@@ -285,11 +302,11 @@ const Register = () => {
 
               <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
                 <p className="text-xs font-semibold text-foreground mb-1">Account Summary</p>
+                <p className="text-[10px] text-muted-foreground">Name: <span className="text-foreground">{firstName} {lastName}</span></p>
+                <p className="text-[10px] text-muted-foreground">Email: <span className="text-foreground">{email}</span></p>
                 <p className="text-[10px] text-muted-foreground">Country: <span className="text-foreground">{selectedCountryData?.flag} {selectedCountryData?.name || "—"}</span></p>
                 <p className="text-[10px] text-muted-foreground">Wallet Currency: <span className="text-primary font-bold">{selectedCurrency || "—"}</span></p>
               </div>
-
-              <p className="text-[10px] text-muted-foreground">Proof of address is optional but recommended for faster verification.</p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -297,11 +314,13 @@ const Register = () => {
 
       <div className="px-5 pb-8 pt-4">
         <button
-          onClick={() => step < 3 ? setStep(step + 1) : navigate("/dashboard")}
+          onClick={() => step < 3 ? setStep(step + 1) : handleRegister()}
+          disabled={loading}
           className="btn-primary flex items-center justify-center gap-2"
         >
-          {step < 3 ? "Continue" : "Create Account"}
-          <ArrowRight size={16} />
+          {loading ? <Loader2 size={16} className="animate-spin" /> : (
+            <>{step < 3 ? "Continue" : "Create Account"} <ArrowRight size={16} /></>
+          )}
         </button>
 
         {step === 0 && (
