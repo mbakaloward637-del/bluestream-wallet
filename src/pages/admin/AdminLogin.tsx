@@ -38,7 +38,6 @@ const AdminLogin = () => {
 
   const handleOtp = () => {
     if (otp.length >= 4) {
-      const { user } = useAuth();
       toast.success("Authentication successful");
       navigate(user?.role === "superadmin" ? "/admin/super-dashboard" : "/admin/dashboard");
     } else {
