@@ -6,7 +6,7 @@ import { Mail, Lock, Shield, ArrowRight, KeyRound } from "lucide-react";
 
 const AdminLogin = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
