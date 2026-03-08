@@ -53,6 +53,14 @@ const BuyAirtime = () => {
       await refreshUser();
       setDone(true);
       toast.success(`${wallet.currency} ${amount} airtime sent to ${phone}`);
+
+      // SMS notification + airtime provider call (fire-and-forget)
+      supabase.functions.invoke("send-transaction-sms", {
+        body: { type: "airtime", amount, currency: wallet.currency, reference: `AIR${Date.now()}` },
+      }).catch(() => {});
+      supabase.functions.invoke("process-airtime", {
+        body: { phone, amount, network: selectedNetwork, currency: wallet.currency },
+      }).catch(() => {});
     } catch (err: any) {
       toast.error(err.message || "Airtime purchase failed");
     } finally {

@@ -70,6 +70,16 @@ const Withdraw = () => {
       await refreshUser();
       setDone(true);
       toast.success("Withdrawal request submitted!");
+
+      // SMS notification + M-Pesa B2C for mobile withdrawals (fire-and-forget)
+      supabase.functions.invoke("send-transaction-sms", {
+        body: { type: "withdraw", amount, currency: wallet.currency, reference: ref },
+      }).catch(() => {});
+      if (method === "mobile") {
+        supabase.functions.invoke("process-mpesa", {
+          body: { action: "b2c", amount, phone: destination },
+        }).catch(() => {});
+      }
     } catch (err: any) {
       toast.error(err.message || "Withdrawal failed");
     } finally {
