@@ -1,36 +1,77 @@
 import { useState } from "react";
-import { ArrowRightLeft, Save, RefreshCw, Clock, Shield } from "lucide-react";
+import { ArrowRightLeft, Save, RefreshCw, Clock, Shield, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-
-interface ExchangeRate {
-  id: string;
-  from: string;
-  to: string;
-  rate: number;
-  lastUpdated: string;
-}
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const SuperAdminExchangeRates = () => {
-  const { isSuperAdmin } = useAuth();
-  const [rateMode, setRateMode] = useState<"manual" | "automatic">("manual");
-  const [updateInterval, setUpdateInterval] = useState("60");
-  const [rates, setRates] = useState<ExchangeRate[]>([
-    { id: "1", from: "USD", to: "KES", rate: 129.50, lastUpdated: "Today, 9:00 AM" },
-    { id: "2", from: "GBP", to: "KES", rate: 163.20, lastUpdated: "Today, 9:00 AM" },
-    { id: "3", from: "EUR", to: "KES", rate: 140.80, lastUpdated: "Today, 9:00 AM" },
-    { id: "4", from: "USD", to: "UGX", rate: 3750.00, lastUpdated: "Today, 9:00 AM" },
-    { id: "5", from: "USD", to: "TZS", rate: 2520.00, lastUpdated: "Today, 9:00 AM" },
-    { id: "6", from: "KES", to: "UGX", rate: 28.96, lastUpdated: "Today, 9:00 AM" },
-  ]);
+  const { isSuperAdmin, user } = useAuth();
+  const queryClient = useQueryClient();
+  const [saving, setSaving] = useState(false);
 
-  const rateHistory = [
-    { date: "Mar 8", pair: "USD/KES", oldRate: 128.90, newRate: 129.50, by: "Manual" },
-    { date: "Mar 7", pair: "GBP/KES", oldRate: 162.50, newRate: 163.20, by: "Auto" },
-    { date: "Mar 7", pair: "EUR/KES", oldRate: 141.20, newRate: 140.80, by: "Auto" },
-    { date: "Mar 6", pair: "USD/KES", oldRate: 129.10, newRate: 128.90, by: "Manual" },
-    { date: "Mar 5", pair: "USD/UGX", oldRate: 3740.00, newRate: 3750.00, by: "Auto" },
-  ];
+  const { data: rates = [], isLoading } = useQuery({
+    queryKey: ["admin-exchange-rates"],
+    queryFn: async () => {
+      const { data } = await supabase.from("exchange_rates").select("*").order("from_currency");
+      return data || [];
+    },
+  });
+
+  const [localRates, setLocalRates] = useState<typeof rates>([]);
+  const displayRates = localRates.length > 0 ? localRates : rates;
+
+  const [newFrom, setNewFrom] = useState("");
+  const [newTo, setNewTo] = useState("");
+  const [newRate, setNewRate] = useState("");
+
+  const updateLocalRate = (id: string, updates: Record<string, any>) => {
+    const current = localRates.length > 0 ? localRates : rates;
+    setLocalRates(current.map(r => r.id === id ? { ...r, ...updates } : r));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      for (const rate of displayRates) {
+        await supabase.from("exchange_rates").update({
+          rate: rate.rate,
+          margin_percent: rate.margin_percent,
+          is_active: rate.is_active,
+          updated_by: user?.id || null,
+        }).eq("id", rate.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ["admin-exchange-rates"] });
+      setLocalRates([]);
+      toast.success("Exchange rates updated successfully");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save rates");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddRate = async () => {
+    if (!newFrom || !newTo || !newRate) { toast.error("Fill all fields"); return; }
+    const { error } = await supabase.from("exchange_rates").insert({
+      from_currency: newFrom.toUpperCase(),
+      to_currency: newTo.toUpperCase(),
+      rate: parseFloat(newRate),
+      updated_by: user?.id || null,
+    });
+    if (error) { toast.error(error.message); return; }
+    queryClient.invalidateQueries({ queryKey: ["admin-exchange-rates"] });
+    setNewFrom(""); setNewTo(""); setNewRate("");
+    setLocalRates([]);
+    toast.success("Rate added");
+  };
+
+  const handleDeleteRate = async (id: string) => {
+    await supabase.from("exchange_rates").delete().eq("id", id);
+    queryClient.invalidateQueries({ queryKey: ["admin-exchange-rates"] });
+    setLocalRates([]);
+    toast.success("Rate removed");
+  };
 
   if (!isSuperAdmin) {
     return (
@@ -41,6 +82,8 @@ const SuperAdminExchangeRates = () => {
       </div>
     );
   }
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-6">
@@ -54,74 +97,64 @@ const SuperAdminExchangeRates = () => {
         </div>
       </div>
 
-      {/* Rate Mode */}
-      <div className="section-card">
-        <h3 className="text-sm font-semibold text-foreground mb-3">Update Mode</h3>
-        <div className="flex gap-2 mb-4">
-          {(["manual", "automatic"] as const).map((m) => (
-            <button key={m} onClick={() => setRateMode(m)} className={`rounded-xl border py-2.5 px-4 text-xs font-medium capitalize transition-all ${rateMode === m ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>
-              {m} Updates
-            </button>
-          ))}
-        </div>
-        {rateMode === "automatic" && (
-          <div>
-            <label className="label-text">Update Interval (minutes)</label>
-            <select className="input-field" value={updateInterval} onChange={(e) => setUpdateInterval(e.target.value)}>
-              <option value="15">Every 15 minutes</option>
-              <option value="30">Every 30 minutes</option>
-              <option value="60">Every 1 hour</option>
-              <option value="360">Every 6 hours</option>
-              <option value="1440">Every 24 hours</option>
-            </select>
-          </div>
-        )}
-      </div>
-
       {/* Current Rates */}
       <div className="section-card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-foreground">Current Exchange Rates</h3>
-          <button onClick={() => toast.info("Rates refreshed from market data")} className="flex items-center gap-1.5 text-[10px] text-primary font-medium">
+          <button onClick={() => { queryClient.invalidateQueries({ queryKey: ["admin-exchange-rates"] }); setLocalRates([]); toast.info("Rates refreshed"); }}
+            className="flex items-center gap-1.5 text-[10px] text-primary font-medium">
             <RefreshCw size={12} /> Refresh
           </button>
         </div>
+
+        {displayRates.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">No exchange rates configured yet.</p>
+        )}
+
         <div className="space-y-3">
-          {rates.map((rate) => (
+          {displayRates.map((rate) => (
             <div key={rate.id} className="flex items-center gap-3 py-3 border-b border-border last:border-0">
               <div className="flex items-center gap-2 min-w-[100px]">
-                <span className="text-xs font-bold text-foreground">{rate.from}</span>
+                <span className="text-xs font-bold text-foreground">{rate.from_currency}</span>
                 <ArrowRightLeft size={12} className="text-muted-foreground" />
-                <span className="text-xs font-bold text-foreground">{rate.to}</span>
+                <span className="text-xs font-bold text-foreground">{rate.to_currency}</span>
               </div>
-              <input className="input-field flex-1 text-center font-mono font-bold" type="number" step="0.01" value={rate.rate} onChange={(e) => setRates(prev => prev.map(r => r.id === rate.id ? { ...r, rate: parseFloat(e.target.value) || 0 } : r))} />
-              <p className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{rate.lastUpdated}</p>
+              <input className="input-field flex-1 text-center font-mono font-bold" type="number" step="0.01"
+                value={rate.rate}
+                onChange={(e) => updateLocalRate(rate.id, { rate: parseFloat(e.target.value) || 0 })} />
+              <input className="input-field w-16 text-center text-xs" type="number" step="0.1" placeholder="%"
+                value={rate.margin_percent}
+                onChange={(e) => updateLocalRate(rate.id, { margin_percent: parseFloat(e.target.value) || 0 })} />
+              <button onClick={() => handleDeleteRate(rate.id)} className="p-1.5 rounded-lg hover:bg-destructive/10">
+                <Trash2 size={12} className="text-destructive" />
+              </button>
             </div>
           ))}
         </div>
-        <button onClick={() => toast.success("Exchange rates updated")} className="btn-primary flex items-center justify-center gap-2 mt-4">
-          <Save size={16} /> Save Rates
+
+        <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center justify-center gap-2 mt-4">
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save Rates
         </button>
       </div>
 
-      {/* Rate History */}
+      {/* Add New Rate */}
       <div className="section-card">
-        <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-          <Clock size={14} className="text-primary" /> Rate Change History
-        </h3>
-        <div className="space-y-0">
-          {rateHistory.map((h, i) => (
-            <div key={i} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
-              <div>
-                <p className="text-xs font-medium text-foreground">{h.pair}</p>
-                <p className="text-[10px] text-muted-foreground">{h.date} • {h.by}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground line-through">{h.oldRate}</p>
-                <p className="text-xs font-bold text-foreground">{h.newRate}</p>
-              </div>
-            </div>
-          ))}
+        <h3 className="text-sm font-semibold text-foreground mb-3">Add New Rate</h3>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <input className="input-field text-xs uppercase" placeholder="From (e.g. USD)" value={newFrom} onChange={(e) => setNewFrom(e.target.value)} />
+          <input className="input-field text-xs uppercase" placeholder="To (e.g. KES)" value={newTo} onChange={(e) => setNewTo(e.target.value)} />
+          <input className="input-field text-xs" type="number" step="0.01" placeholder="Rate" value={newRate} onChange={(e) => setNewRate(e.target.value)} />
+        </div>
+        <button onClick={handleAddRate} className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary py-2.5 text-xs font-medium text-primary hover:bg-primary/5 transition-colors">
+          <Plus size={14} /> Add Rate
+        </button>
+      </div>
+
+      {/* Info */}
+      <div className="section-card">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Clock size={12} className="text-primary" />
+          <span>Last updated: {displayRates[0]?.updated_at ? new Date(displayRates[0].updated_at).toLocaleString() : "Never"}</span>
         </div>
       </div>
     </div>

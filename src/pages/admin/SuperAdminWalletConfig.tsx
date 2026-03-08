@@ -1,20 +1,42 @@
-import { useState } from "react";
-import { Wallet, Save, Shield } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Wallet, Save, Shield, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+const CONFIG_KEY = "wallet_config";
+
+const defaultConfig = {
+  minBalance: "0",
+  maxBalance: "1000000",
+  dailyTransferLimit: "500000",
+  dailyWithdrawalLimit: "200000",
+  singleTransactionLimit: "100000",
+  pinLength: "4",
+  failedPinAttempts: "5",
+  autoLockDuration: "30",
+};
 
 const SuperAdminWalletConfig = () => {
-  const { isSuperAdmin } = useAuth();
-  const [config, setConfig] = useState({
-    minBalance: "0",
-    maxBalance: "1000000",
-    dailyTransferLimit: "500000",
-    dailyWithdrawalLimit: "200000",
-    singleTransactionLimit: "100000",
-    pinLength: "4",
-    failedPinAttempts: "5",
-    autoLockDuration: "30",
+  const { isSuperAdmin, user } = useAuth();
+  const queryClient = useQueryClient();
+  const [saving, setSaving] = useState(false);
+  const [config, setConfig] = useState(defaultConfig);
+
+  const { data: dbConfig, isLoading } = useQuery({
+    queryKey: ["platform-config", CONFIG_KEY],
+    queryFn: async () => {
+      const { data } = await supabase.from("platform_config").select("*").eq("key", CONFIG_KEY).single();
+      return data;
+    },
   });
+
+  useEffect(() => {
+    if (dbConfig?.value && typeof dbConfig.value === "object") {
+      setConfig({ ...defaultConfig, ...(dbConfig.value as Record<string, string>) });
+    }
+  }, [dbConfig]);
 
   if (!isSuperAdmin) {
     return (
@@ -26,7 +48,31 @@ const SuperAdminWalletConfig = () => {
     );
   }
 
-  const handleSave = () => toast.success("Wallet configuration updated successfully");
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (dbConfig) {
+        await supabase.from("platform_config").update({
+          value: config as any,
+          updated_by: user?.id || null,
+        }).eq("key", CONFIG_KEY);
+      } else {
+        await supabase.from("platform_config").insert({
+          key: CONFIG_KEY,
+          value: config as any,
+          updated_by: user?.id || null,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["platform-config", CONFIG_KEY] });
+      toast.success("Wallet configuration updated successfully");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save config");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-6">
@@ -97,8 +143,8 @@ const SuperAdminWalletConfig = () => {
         </div>
       </div>
 
-      <button onClick={handleSave} className="btn-primary flex items-center justify-center gap-2">
-        <Save size={16} /> Save Configuration
+      <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center justify-center gap-2">
+        {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save Configuration
       </button>
     </div>
   );

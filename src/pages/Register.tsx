@@ -1,8 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, User, Mail, Phone, Lock, MapPin, Calendar, Shield, Upload, Camera, Search, ChevronDown, Globe, Banknote, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, User, Mail, Phone, Lock, MapPin, Calendar, Shield, Upload, Camera, Search, ChevronDown, Globe, Banknote, Loader2, CheckCircle2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { countries, getUniqueCurrencies } from "@/data/countries";
 import type { CountryData } from "@/data/countries";
@@ -97,6 +98,12 @@ const SearchableDropdown = ({ label, icon, placeholder, value, onSelect, items }
   );
 };
 
+interface KycUpload {
+  file: File | null;
+  preview: string | null;
+  uploading: boolean;
+}
+
 const Register = () => {
   const navigate = useNavigate();
   const { register } = useAuth();
@@ -119,6 +126,15 @@ const Register = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [pin, setPin] = useState("");
 
+  // KYC uploads
+  const [idFront, setIdFront] = useState<KycUpload>({ file: null, preview: null, uploading: false });
+  const [idBack, setIdBack] = useState<KycUpload>({ file: null, preview: null, uploading: false });
+  const [selfie, setSelfie] = useState<KycUpload>({ file: null, preview: null, uploading: false });
+
+  const idFrontRef = useRef<HTMLInputElement>(null);
+  const idBackRef = useRef<HTMLInputElement>(null);
+  const selfieRef = useRef<HTMLInputElement>(null);
+
   const countryItems = useMemo(
     () => countries.map((c) => ({ id: c.code, label: c.name, sublabel: `${c.dialCode} · ${c.currencyCode}`, prefix: `${c.flag} ` })),
     []
@@ -137,6 +153,56 @@ const Register = () => {
   }, [selectedCountry]);
 
   const selectedCountryData: CountryData | undefined = countries.find((c) => c.code === selectedCountry);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<KycUpload>>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast.error("File must be under 5MB"); return; }
+    if (!file.type.startsWith("image/")) { toast.error("Only image files allowed"); return; }
+    const preview = URL.createObjectURL(file);
+    setter({ file, preview, uploading: false });
+  };
+
+  const clearFile = (setter: React.Dispatch<React.SetStateAction<KycUpload>>) => {
+    setter({ file: null, preview: null, uploading: false });
+  };
+
+  const uploadKycDocuments = async (userId: string) => {
+    const uploads: { field: string; file: File; setter: React.Dispatch<React.SetStateAction<KycUpload>> }[] = [];
+    if (idFront.file) uploads.push({ field: "id_front_url", file: idFront.file, setter: setIdFront });
+    if (idBack.file) uploads.push({ field: "id_back_url", file: idBack.file, setter: setIdBack });
+    if (selfie.file) uploads.push({ field: "selfie_url", file: selfie.file, setter: setSelfie });
+
+    const urls: Record<string, string> = {};
+
+    for (const upload of uploads) {
+      upload.setter(prev => ({ ...prev, uploading: true }));
+      const ext = upload.file.name.split(".").pop();
+      const path = `${userId}/${upload.field}.${ext}`;
+
+      const { error } = await supabase.storage
+        .from("kyc-documents")
+        .upload(path, upload.file, { upsert: true });
+
+      if (error) {
+        console.error(`Upload ${upload.field} failed:`, error);
+        upload.setter(prev => ({ ...prev, uploading: false }));
+        continue;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("kyc-documents")
+        .getPublicUrl(path);
+
+      urls[upload.field] = urlData.publicUrl;
+      upload.setter(prev => ({ ...prev, uploading: false }));
+    }
+
+    // Update profile with document URLs
+    if (Object.keys(urls).length > 0) {
+      await supabase.from("profiles").update(urls).eq("user_id", userId);
+    }
+  };
 
   const handleRegister = async () => {
     if (password !== confirmPassword) { toast.error("Passwords don't match"); return; }
@@ -160,12 +226,26 @@ const Register = () => {
     setLoading(false);
 
     if (result.success) {
+      // Upload KYC documents after registration (user is now created)
+      // The auth trigger creates the profile, so we can upload docs
+      // We get the user ID from the session after signup
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id && (idFront.file || idBack.file || selfie.file)) {
+        toast.info("Uploading verification documents...");
+        await uploadKycDocuments(session.user.id);
+      }
       toast.success("Account created! Please check your email to verify.");
       navigate("/login");
     } else {
       toast.error(result.error || "Registration failed");
     }
   };
+
+  const kycDocs = [
+    { label: "Government ID (Front)", icon: Upload, state: idFront, setter: setIdFront, inputRef: idFrontRef },
+    { label: "Government ID (Back)", icon: Upload, state: idBack, setter: setIdBack, inputRef: idBackRef },
+    { label: "Selfie for Verification", icon: Camera, state: selfie, setter: setSelfie, inputRef: selfieRef },
+  ];
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -284,19 +364,45 @@ const Register = () => {
             <motion.div key="s3" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} className="space-y-4">
               <p className="text-sm text-muted-foreground">Upload documents for identity verification.</p>
 
-              {[
-                { label: "Government ID (Front)", icon: Upload },
-                { label: "Government ID (Back)", icon: Upload },
-                { label: "Selfie for Verification", icon: Camera },
-              ].map((doc) => (
-                <div key={doc.label} className="section-card flex items-center gap-3 cursor-pointer hover:bg-secondary/50 transition-colors">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                    <doc.icon size={20} className="text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-foreground">{doc.label}</p>
-                    <p className="text-xs text-muted-foreground">Tap to upload</p>
-                  </div>
+              {kycDocs.map((doc) => (
+                <div key={doc.label}>
+                  <input
+                    ref={doc.inputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => handleFileSelect(e, doc.setter)}
+                  />
+                  {doc.state.preview ? (
+                    <div className="section-card relative">
+                      <div className="flex items-center gap-3 mb-2">
+                        <CheckCircle2 size={16} className="text-success" />
+                        <p className="text-sm font-medium text-foreground flex-1">{doc.label}</p>
+                        <button onClick={() => clearFile(doc.setter)} className="p-1 rounded-lg hover:bg-secondary">
+                          <X size={14} className="text-muted-foreground" />
+                        </button>
+                      </div>
+                      <img src={doc.state.preview} alt={doc.label} className="w-full h-32 object-cover rounded-lg" />
+                      {doc.state.uploading && (
+                        <div className="absolute inset-0 bg-background/80 flex items-center justify-center rounded-xl">
+                          <Loader2 size={20} className="animate-spin text-primary" />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => doc.inputRef.current?.click()}
+                      className="section-card w-full flex items-center gap-3 cursor-pointer hover:bg-secondary/50 transition-colors"
+                    >
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                        <doc.icon size={20} className="text-primary" />
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="text-sm font-medium text-foreground">{doc.label}</p>
+                        <p className="text-xs text-muted-foreground">Tap to upload (max 5MB)</p>
+                      </div>
+                    </button>
+                  )}
                 </div>
               ))}
 
@@ -306,6 +412,7 @@ const Register = () => {
                 <p className="text-[10px] text-muted-foreground">Email: <span className="text-foreground">{email}</span></p>
                 <p className="text-[10px] text-muted-foreground">Country: <span className="text-foreground">{selectedCountryData?.flag} {selectedCountryData?.name || "—"}</span></p>
                 <p className="text-[10px] text-muted-foreground">Wallet Currency: <span className="text-primary font-bold">{selectedCurrency || "—"}</span></p>
+                <p className="text-[10px] text-muted-foreground">Documents: <span className="text-foreground">{[idFront.file, idBack.file, selfie.file].filter(Boolean).length}/3 uploaded</span></p>
               </div>
             </motion.div>
           )}
