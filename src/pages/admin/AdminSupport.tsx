@@ -39,7 +39,7 @@ const AdminSupport = () => {
     },
   });
 
-  const handleStatusUpdate = async (id: string, status: string) => {
+  const handleStatusUpdate = async (id: string, status: "open" | "in_progress" | "resolved" | "escalated") => {
     await supabase.from("support_tickets").update({ status }).eq("id", id);
     queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
     toast.success(`Ticket status updated to ${status.replace("_", " ")}`);
