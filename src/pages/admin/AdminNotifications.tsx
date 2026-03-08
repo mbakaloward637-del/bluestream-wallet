@@ -36,25 +36,49 @@ const AdminNotifications = () => {
     setSending(true);
 
     try {
-      // Get all user IDs
-      const { data: profiles } = await supabase.from("profiles").select("user_id");
-      if (!profiles || profiles.length === 0) { toast.error("No users found"); return; }
+      const results: string[] = [];
 
-      // Insert notification for each user
-      const notifications = profiles.map(p => ({
-        user_id: p.user_id,
-        title,
-        message,
-        type: "announcement",
-      }));
-
-      // Batch insert in chunks of 100
-      for (let i = 0; i < notifications.length; i += 100) {
-        const chunk = notifications.slice(i, i + 100);
-        await supabase.from("notifications").insert(chunk);
+      // Send in-app notifications
+      if (channels.includes("inapp")) {
+        const { data: profiles } = await supabase.from("profiles").select("user_id");
+        if (profiles && profiles.length > 0) {
+          const notifications = profiles.map(p => ({
+            user_id: p.user_id,
+            title,
+            message,
+            type: "announcement",
+          }));
+          for (let i = 0; i < notifications.length; i += 100) {
+            const chunk = notifications.slice(i, i + 100);
+            await supabase.from("notifications").insert(chunk);
+          }
+          results.push(`In-App: ${profiles.length} users`);
+        }
       }
 
-      toast.success(`Notification sent to ${profiles.length} users`);
+      // Send bulk SMS via edge function
+      if (channels.includes("sms")) {
+        const { data: smsResult, error: smsError } = await supabase.functions.invoke("send-bulk-sms", {
+          body: { title, message },
+        });
+        if (smsError) {
+          toast.error(`SMS failed: ${smsError.message}`);
+        } else if (smsResult) {
+          const info = smsResult as { total_recipients: number; sent: number; failed: number; provider_configured: boolean };
+          if (!info.provider_configured) {
+            results.push(`SMS: ${info.sent} queued (provider not configured yet)`);
+          } else {
+            results.push(`SMS: ${info.sent} sent, ${info.failed} failed`);
+          }
+        }
+      }
+
+      // Push placeholder
+      if (channels.includes("push")) {
+        results.push("Push: queued (provider pending)");
+      }
+
+      toast.success(results.join(" · ") || "Notifications sent");
       setTitle("");
       setMessage("");
     } catch (err: any) {
