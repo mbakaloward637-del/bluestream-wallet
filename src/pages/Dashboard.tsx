@@ -3,20 +3,48 @@ import QuickActions from "@/components/QuickActions";
 import TransactionItem from "@/components/TransactionItem";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/context/AuthContext";
-import { Bell, Shield, LogOut, Loader2 } from "lucide-react";
+import { Bell, Shield, LogOut, Loader2, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Transaction } from "@/components/TransactionItem";
 
 const Dashboard = () => {
   const { user, isAdmin, logout, loading } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!loading && !user) navigate("/login");
   }, [user, loading, navigate]);
+
+  // Realtime transaction listener — auto-refresh recent transactions
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`dashboard-txns-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "transactions",
+        },
+        (payload) => {
+          const tx = payload.new as any;
+          if (tx.sender_user_id === user.id || tx.receiver_user_id === user.id) {
+            queryClient.invalidateQueries({ queryKey: ["recent-transactions", user.id] });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, queryClient]);
 
   const { data: transactions = [] } = useQuery({
     queryKey: ["recent-transactions", user?.id],
@@ -83,6 +111,26 @@ const Dashboard = () => {
       </div>
 
       <div className="px-5 space-y-6">
+        {/* KYC Status Banner — informational only, does not block access */}
+        {user.kycStatus === "pending" && (
+          <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3">
+            <AlertTriangle size={18} className="text-warning shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">KYC Verification Pending</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Your documents are being reviewed. Some features may be limited until verification is complete.</p>
+            </div>
+          </div>
+        )}
+        {user.kycStatus === "rejected" && (
+          <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+            <AlertTriangle size={18} className="text-destructive shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">KYC Verification Rejected</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Please update your documents in your profile to re-submit for verification.</p>
+            </div>
+          </div>
+        )}
+
         <WalletCard
           balance={user.walletBalance}
           currency={user.currency}
