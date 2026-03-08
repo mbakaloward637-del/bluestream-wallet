@@ -4,7 +4,7 @@ import TransactionItem from "@/components/TransactionItem";
 import BottomNav from "@/components/BottomNav";
 import { mockTransactions } from "@/data/mockData";
 import { useAuth } from "@/context/AuthContext";
-import { Bell, Shield, LogOut, User } from "lucide-react";
+import { Bell, Shield, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 
@@ -38,7 +38,7 @@ const Dashboard = () => {
         </div>
         <div className="flex gap-2">
           {isAdmin && (
-            <button onClick={() => navigate("/admin")} className="back-btn">
+            <button onClick={() => navigate("/admin/login")} className="back-btn">
               <Shield size={18} className="text-primary" />
             </button>
           )}
