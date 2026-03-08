@@ -585,6 +585,10 @@ export type Database = {
         Args: { lookup_type: string; lookup_value: string }
         Returns: Json
       }
+      set_pin: {
+        Args: { _pin: string; _wallet_id: string }
+        Returns: undefined
+      }
       transfer_funds: {
         Args: {
           p_amount: number
@@ -594,6 +598,10 @@ export type Database = {
           p_sender_id: string
         }
         Returns: Json
+      }
+      verify_pin: {
+        Args: { _pin: string; _wallet_id: string }
+        Returns: boolean
       }
     }
     Enums: {
