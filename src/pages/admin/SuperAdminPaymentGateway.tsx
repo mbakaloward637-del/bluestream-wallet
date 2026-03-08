@@ -1,28 +1,68 @@
 import { useState } from "react";
-import { CreditCard, Smartphone, Building2, Save, Eye, EyeOff, Shield, ToggleLeft, ToggleRight } from "lucide-react";
+import { CreditCard, Smartphone, Building2, Save, Eye, EyeOff, Shield, ToggleLeft, ToggleRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-interface Gateway {
-  id: string;
-  name: string;
-  icon: typeof CreditCard;
-  enabled: boolean;
-  mode: "sandbox" | "production";
-  apiKey: string;
-  secretKey: string;
-  webhookUrl: string;
-  callbackUrl: string;
-}
+const gatewayIcons: Record<string, typeof CreditCard> = {
+  paystack: CreditCard,
+  mpesa: Smartphone,
+  bank: Building2,
+};
 
 const SuperAdminPaymentGateway = () => {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, user } = useAuth();
+  const queryClient = useQueryClient();
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
-  const [gateways, setGateways] = useState<Gateway[]>([
-    { id: "paystack", name: "Paystack", icon: CreditCard, enabled: true, mode: "sandbox", apiKey: "pk_test_xxxxxxxxxxxx", secretKey: "sk_test_xxxxxxxxxxxx", webhookUrl: "https://api.abanremit.com/webhooks/paystack", callbackUrl: "https://abanremit.com/payment/callback" },
-    { id: "mpesa", name: "M-Pesa (Daraja)", icon: Smartphone, enabled: true, mode: "sandbox", apiKey: "mpesa_consumer_key_xxx", secretKey: "mpesa_consumer_secret_xxx", webhookUrl: "https://api.abanremit.com/webhooks/mpesa", callbackUrl: "https://abanremit.com/mpesa/callback" },
-    { id: "bank", name: "Bank Transfer", icon: Building2, enabled: false, mode: "sandbox", apiKey: "", secretKey: "", webhookUrl: "https://api.abanremit.com/webhooks/bank", callbackUrl: "https://abanremit.com/bank/callback" },
-  ]);
+  const [saving, setSaving] = useState(false);
+
+  const { data: gateways = [], isLoading } = useQuery({
+    queryKey: ["admin-payment-gateways"],
+    queryFn: async () => {
+      const { data } = await supabase.from("payment_gateways").select("*").order("name");
+      return data || [];
+    },
+  });
+
+  const [localGateways, setLocalGateways] = useState<typeof gateways>([]);
+  const displayGateways = localGateways.length > 0 ? localGateways : gateways;
+
+  const updateGateway = (id: string, updates: Record<string, any>) => {
+    const current = localGateways.length > 0 ? localGateways : gateways;
+    setLocalGateways(current.map(g => g.id === id ? { ...g, ...updates } : g));
+  };
+
+  const updateGatewayConfig = (id: string, configKey: string, value: string) => {
+    const current = localGateways.length > 0 ? localGateways : gateways;
+    setLocalGateways(current.map(g => {
+      if (g.id !== id) return g;
+      const config = typeof g.config === "object" && g.config !== null ? { ...(g.config as Record<string, any>) } : {};
+      config[configKey] = value;
+      return { ...g, config };
+    }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      for (const gw of displayGateways) {
+        await supabase.from("payment_gateways").update({
+          is_enabled: gw.is_enabled,
+          mode: gw.mode,
+          config: gw.config,
+          updated_by: user?.id || null,
+        }).eq("id", gw.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ["admin-payment-gateways"] });
+      setLocalGateways([]);
+      toast.success("Gateway configuration saved");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!isSuperAdmin) {
     return (
@@ -34,17 +74,9 @@ const SuperAdminPaymentGateway = () => {
     );
   }
 
-  const toggleGateway = (id: string) => {
-    setGateways(prev => prev.map(g => g.id === id ? { ...g, enabled: !g.enabled } : g));
-    toast.success("Gateway status updated");
-  };
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
 
-  const toggleMode = (id: string) => {
-    setGateways(prev => prev.map(g => g.id === id ? { ...g, mode: g.mode === "sandbox" ? "production" : "sandbox" } : g));
-    toast.info("Mode switched");
-  };
-
-  const maskKey = (key: string) => key.length > 8 ? key.slice(0, 8) + "••••••••" : "••••••••";
+  const maskKey = (key: string) => key && key.length > 8 ? key.slice(0, 8) + "••••••••" : "••••••••";
 
   return (
     <div className="space-y-6">
@@ -58,70 +90,66 @@ const SuperAdminPaymentGateway = () => {
         </div>
       </div>
 
-      {gateways.map((gw) => (
-        <div key={gw.id} className={`section-card ${!gw.enabled ? "opacity-60" : ""}`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                <gw.icon size={18} className="text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">{gw.name}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${gw.enabled ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-                    {gw.enabled ? "Enabled" : "Disabled"}
-                  </span>
-                  <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${gw.mode === "production" ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning"}`}>
-                    {gw.mode}
-                  </span>
+      {displayGateways.length === 0 && (
+        <p className="text-xs text-muted-foreground text-center py-8">No payment gateways configured yet. Add them via the database.</p>
+      )}
+
+      {displayGateways.map((gw) => {
+        const Icon = gatewayIcons[gw.provider] || CreditCard;
+        const config = typeof gw.config === "object" && gw.config !== null ? gw.config as Record<string, any> : {};
+        return (
+          <div key={gw.id} className={`section-card ${!gw.is_enabled ? "opacity-60" : ""}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                  <Icon size={18} className="text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">{gw.name}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${gw.is_enabled ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                      {gw.is_enabled ? "Enabled" : "Disabled"}
+                    </span>
+                    <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${gw.mode === "production" ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning"}`}>
+                      {gw.mode}
+                    </span>
+                  </div>
                 </div>
               </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => updateGateway(gw.id, { mode: gw.mode === "sandbox" ? "production" : "sandbox" })} className="text-[10px] text-primary font-medium underline">
+                  Switch to {gw.mode === "sandbox" ? "Production" : "Sandbox"}
+                </button>
+                <button onClick={() => updateGateway(gw.id, { is_enabled: !gw.is_enabled })}>
+                  {gw.is_enabled ? <ToggleRight size={28} className="text-success" /> : <ToggleLeft size={28} className="text-muted-foreground" />}
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => toggleMode(gw.id)} className="text-[10px] text-primary font-medium underline">
-                Switch to {gw.mode === "sandbox" ? "Production" : "Sandbox"}
-              </button>
-              <button onClick={() => toggleGateway(gw.id)}>
-                {gw.enabled ? <ToggleRight size={28} className="text-success" /> : <ToggleLeft size={28} className="text-muted-foreground" />}
-              </button>
-            </div>
+
+            {gw.is_enabled && (
+              <div className="space-y-3">
+                {["api_key", "secret_key", "webhook_url", "callback_url"].map((key) => (
+                  <div key={key}>
+                    <label className="label-text capitalize">{key.replace("_", " ")}</label>
+                    <div className="flex gap-2">
+                      <input className="input-field flex-1 font-mono text-xs"
+                        value={showSecrets[`${gw.id}_${key}`] ? (config[key] || "") : maskKey(config[key] || "")}
+                        onChange={(e) => updateGatewayConfig(gw.id, key, e.target.value)} />
+                      <button onClick={() => setShowSecrets(prev => ({ ...prev, [`${gw.id}_${key}`]: !prev[`${gw.id}_${key}`] }))}
+                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-border hover:bg-secondary transition-colors">
+                        {showSecrets[`${gw.id}_${key}`] ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+        );
+      })}
 
-          {gw.enabled && (
-            <div className="space-y-3">
-              <div>
-                <label className="label-text">API Key</label>
-                <div className="flex gap-2">
-                  <input className="input-field flex-1 font-mono text-xs" value={showSecrets[gw.id + "_api"] ? gw.apiKey : maskKey(gw.apiKey)} readOnly />
-                  <button onClick={() => setShowSecrets(prev => ({ ...prev, [gw.id + "_api"]: !prev[gw.id + "_api"] }))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-border hover:bg-secondary transition-colors">
-                    {showSecrets[gw.id + "_api"] ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="label-text">Secret Key</label>
-                <div className="flex gap-2">
-                  <input className="input-field flex-1 font-mono text-xs" value={showSecrets[gw.id + "_secret"] ? gw.secretKey : maskKey(gw.secretKey)} readOnly />
-                  <button onClick={() => setShowSecrets(prev => ({ ...prev, [gw.id + "_secret"]: !prev[gw.id + "_secret"] }))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-border hover:bg-secondary transition-colors">
-                    {showSecrets[gw.id + "_secret"] ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="label-text">Webhook URL</label>
-                <input className="input-field font-mono text-xs" value={gw.webhookUrl} readOnly />
-              </div>
-              <div>
-                <label className="label-text">Callback URL</label>
-                <input className="input-field font-mono text-xs" value={gw.callbackUrl} readOnly />
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-
-      <button onClick={() => toast.success("Gateway configuration saved")} className="btn-primary flex items-center justify-center gap-2">
-        <Save size={16} /> Save All Changes
+      <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center justify-center gap-2">
+        {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save All Changes
       </button>
     </div>
   );

@@ -1,21 +1,43 @@
-import { useState } from "react";
-import { Settings, Save, Globe, Palette, Smartphone, Shield } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Settings, Save, Globe, Palette, Smartphone, Shield, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+const CONFIG_KEY = "system_settings";
+
+const defaultSettings = {
+  platformName: "AbanRemit",
+  defaultCurrency: "KES",
+  timezone: "Africa/Nairobi",
+  language: "English",
+  maintenanceMode: false,
+  maintenanceMessage: "System is under maintenance. Please try again later.",
+  appName: "AbanRemit",
+  appDescription: "Secure Digital Wallet & Remittance",
+  offlineBehavior: "cache_first",
+};
 
 const SuperAdminSettings = () => {
-  const { isSuperAdmin } = useAuth();
-  const [settings, setSettings] = useState({
-    platformName: "AbanRemit",
-    defaultCurrency: "KES",
-    timezone: "Africa/Nairobi",
-    language: "English",
-    maintenanceMode: false,
-    maintenanceMessage: "System is under maintenance. Please try again later.",
-    appName: "AbanRemit",
-    appDescription: "Secure Digital Wallet & Remittance",
-    offlineBehavior: "cache_first",
+  const { isSuperAdmin, user } = useAuth();
+  const queryClient = useQueryClient();
+  const [saving, setSaving] = useState(false);
+  const [settings, setSettings] = useState(defaultSettings);
+
+  const { data: dbConfig, isLoading } = useQuery({
+    queryKey: ["platform-config", CONFIG_KEY],
+    queryFn: async () => {
+      const { data } = await supabase.from("platform_config").select("*").eq("key", CONFIG_KEY).single();
+      return data;
+    },
   });
+
+  useEffect(() => {
+    if (dbConfig?.value && typeof dbConfig.value === "object") {
+      setSettings({ ...defaultSettings, ...(dbConfig.value as any) });
+    }
+  }, [dbConfig]);
 
   if (!isSuperAdmin) {
     return (
@@ -26,6 +48,32 @@ const SuperAdminSettings = () => {
       </div>
     );
   }
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (dbConfig) {
+        await supabase.from("platform_config").update({
+          value: settings as any,
+          updated_by: user?.id || null,
+        }).eq("key", CONFIG_KEY);
+      } else {
+        await supabase.from("platform_config").insert({
+          key: CONFIG_KEY,
+          value: settings as any,
+          updated_by: user?.id || null,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["platform-config", CONFIG_KEY] });
+      toast.success("System settings saved successfully");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-6">
@@ -39,7 +87,6 @@ const SuperAdminSettings = () => {
         </div>
       </div>
 
-      {/* Platform Identity */}
       <div className="section-card">
         <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Palette size={14} className="text-primary" /> Platform Identity</h3>
         <div className="space-y-4">
@@ -47,24 +94,9 @@ const SuperAdminSettings = () => {
             <label className="label-text">Platform Name</label>
             <input className="input-field" value={settings.platformName} onChange={(e) => setSettings({ ...settings, platformName: e.target.value })} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label-text">Logo</label>
-              <div className="flex h-20 items-center justify-center rounded-xl border-2 border-dashed border-border hover:border-primary/30 transition-colors cursor-pointer">
-                <p className="text-[10px] text-muted-foreground">Click to upload</p>
-              </div>
-            </div>
-            <div>
-              <label className="label-text">Favicon</label>
-              <div className="flex h-20 items-center justify-center rounded-xl border-2 border-dashed border-border hover:border-primary/30 transition-colors cursor-pointer">
-                <p className="text-[10px] text-muted-foreground">Click to upload</p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Localization */}
       <div className="section-card">
         <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Globe size={14} className="text-primary" /> Localization</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -99,7 +131,6 @@ const SuperAdminSettings = () => {
         </div>
       </div>
 
-      {/* PWA Configuration */}
       <div className="section-card">
         <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Smartphone size={14} className="text-primary" /> PWA Configuration</h3>
         <div className="space-y-4">
@@ -119,34 +150,19 @@ const SuperAdminSettings = () => {
               <option value="offline_page">Show Offline Page</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label-text">App Icon</label>
-              <div className="flex h-20 items-center justify-center rounded-xl border-2 border-dashed border-border hover:border-primary/30 transition-colors cursor-pointer">
-                <p className="text-[10px] text-muted-foreground">512x512 PNG</p>
-              </div>
-            </div>
-            <div>
-              <label className="label-text">Splash Screen</label>
-              <div className="flex h-20 items-center justify-center rounded-xl border-2 border-dashed border-border hover:border-primary/30 transition-colors cursor-pointer">
-                <p className="text-[10px] text-muted-foreground">Upload image</p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Maintenance Mode */}
       <div className="section-card">
         <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Shield size={14} className="text-destructive" /> Maintenance Mode</h3>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-foreground">Enable Maintenance Mode</p>
-              <p className="text-xs text-muted-foreground">Users and admins will be blocked from accessing the platform.</p>
+              <p className="text-xs text-muted-foreground">Users will be blocked from accessing the platform.</p>
             </div>
             <button onClick={() => setSettings({ ...settings, maintenanceMode: !settings.maintenanceMode })} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.maintenanceMode ? "bg-destructive" : "bg-muted"}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.maintenanceMode ? "translate-x-6" : "translate-x-1"}`} />
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${settings.maintenanceMode ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
           {settings.maintenanceMode && (
@@ -158,8 +174,8 @@ const SuperAdminSettings = () => {
         </div>
       </div>
 
-      <button onClick={() => toast.success("System settings saved")} className="btn-primary flex items-center justify-center gap-2">
-        <Save size={16} /> Save Settings
+      <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center justify-center gap-2">
+        {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save Settings
       </button>
     </div>
   );
