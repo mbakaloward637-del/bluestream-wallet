@@ -18,29 +18,27 @@ const SendMoney = () => {
   const [processing, setProcessing] = useState(false);
   const [done, setDone] = useState(false);
   const [recipientInfo, setRecipientInfo] = useState<{ name: string; wallet: string } | null>(null);
+  const [txResult, setTxResult] = useState<{ reference: string; fee: number; currency: string } | null>(null);
 
-  // Lookup recipient
+  // Lookup recipient using server-side function (bypasses RLS)
   const lookupRecipient = async () => {
     if (recipient.length < 5) return;
-    const field = method === "wallet" ? "wallet_number" : undefined;
-    
-    let query;
-    if (method === "wallet") {
-      query = supabase.from("wallets").select("wallet_number, user_id").eq("wallet_number", recipient).single();
-    } else {
-      query = supabase.from("profiles").select("first_name, last_name, user_id").eq("phone", recipient).single();
-    }
-    
-    const { data } = await query;
-    if (data) {
-      if (method === "phone") {
-        const p = data as any;
-        setRecipientInfo({ name: `${p.first_name} ${p.last_name}`, wallet: "" });
+    try {
+      const { data, error } = await supabase.rpc("lookup_recipient", {
+        lookup_type: method,
+        lookup_value: recipient,
+      });
+      if (error) throw error;
+      const result = data as any;
+      if (result?.found) {
+        setRecipientInfo({ name: result.name, wallet: result.wallet || "" });
       } else {
-        // Get profile for wallet user
-        const { data: profile } = await supabase.from("profiles").select("first_name, last_name").eq("user_id", (data as any).user_id).single();
-        if (profile) setRecipientInfo({ name: `${profile.first_name} ${profile.last_name}`, wallet: (data as any).wallet_number });
+        setRecipientInfo(null);
+        toast.error("Recipient not found");
       }
+    } catch (err: any) {
+      console.error("Lookup error:", err);
+      setRecipientInfo(null);
     }
   };
 
@@ -49,59 +47,30 @@ const SendMoney = () => {
     setProcessing(true);
 
     try {
-      // Get sender wallet
-      const { data: senderWallet } = await supabase.from("wallets").select("*").eq("user_id", user.id).single();
-      if (!senderWallet) throw new Error("Wallet not found");
-      if (Number(senderWallet.balance) < Number(amount)) throw new Error("Insufficient balance");
+      const { data, error } = await supabase.rpc("transfer_funds", {
+        p_sender_id: user.id,
+        p_recipient_wallet: method === "wallet" ? recipient : "",
+        p_recipient_phone: method === "phone" ? recipient : "",
+        p_amount: Number(amount),
+        p_pin: pin,
+      });
 
-      // Get receiver wallet
-      let receiverWallet;
-      if (method === "wallet") {
-        const { data } = await supabase.from("wallets").select("*").eq("wallet_number", recipient).single();
-        receiverWallet = data;
-      } else {
-        const { data: profile } = await supabase.from("profiles").select("user_id").eq("phone", recipient).single();
-        if (profile) {
-          const { data } = await supabase.from("wallets").select("*").eq("user_id", profile.user_id).single();
-          receiverWallet = data;
-        }
-      }
-      if (!receiverWallet) throw new Error("Recipient not found");
+      if (error) throw error;
+      const result = data as any;
 
-      // Get fee
-      const { data: feeConfig } = await supabase.from("fee_config").select("*").eq("transaction_type", "send").eq("is_active", true).single();
-      let fee = 0;
-      if (feeConfig) {
-        fee = feeConfig.fee_type === "flat" ? Number(feeConfig.flat_amount || 0) : Number(amount) * Number(feeConfig.percentage || 0) / 100;
+      if (!result?.success) {
+        throw new Error(result?.error || "Transfer failed");
       }
 
-      const totalDebit = Number(amount) + fee;
-      if (Number(senderWallet.balance) < totalDebit) throw new Error("Insufficient balance including fee");
-
-      // Debit sender
-      await supabase.from("wallets").update({ balance: Number(senderWallet.balance) - totalDebit }).eq("id", senderWallet.id);
-      // Credit receiver
-      await supabase.from("wallets").update({ balance: Number(receiverWallet.balance) + Number(amount) }).eq("id", receiverWallet.id);
-
-      // Create transaction record
-      const ref = `TRF${Date.now()}`;
-      await supabase.from("transactions").insert({
-        reference: ref,
-        type: "send",
-        sender_user_id: user.id,
-        sender_wallet_id: senderWallet.id,
-        receiver_user_id: receiverWallet.user_id,
-        receiver_wallet_id: receiverWallet.id,
-        amount: Number(amount),
-        fee,
-        currency: senderWallet.currency,
-        description: `Sent to ${recipientInfo?.name || recipient}`,
-        status: "completed",
+      setTxResult({
+        reference: result.reference,
+        fee: result.fee,
+        currency: result.currency,
       });
 
       await refreshUser();
       setDone(true);
-      toast.success(`${senderWallet.currency} ${amount} sent successfully!`);
+      toast.success(`${result.currency} ${amount} sent successfully!`);
     } catch (err: any) {
       toast.error(err.message || "Transfer failed");
     } finally {
@@ -124,7 +93,13 @@ const SendMoney = () => {
               <Check size={40} className="text-success" />
             </div>
             <h2 className="text-xl font-bold text-foreground">Money Sent!</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{user?.currency} {amount} to {recipientInfo?.name || recipient}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {txResult?.currency || user?.currency} {amount} to {recipientInfo?.name || recipient}
+            </p>
+            {txResult?.fee ? (
+              <p className="mt-1 text-xs text-muted-foreground">Fee: {txResult.currency} {txResult.fee.toFixed(2)}</p>
+            ) : null}
+            <p className="mt-1 text-xs text-muted-foreground">Ref: {txResult?.reference}</p>
             <button onClick={() => navigate("/dashboard")} className="mt-6 bg-primary rounded-xl px-8 py-3 text-sm font-semibold text-primary-foreground">Done</button>
           </div>
         </div>
@@ -180,7 +155,7 @@ const SendMoney = () => {
                 </motion.div>
               )}
 
-              <button onClick={() => setStep(2)} disabled={recipient.length < 5} className="btn-primary">Continue</button>
+              <button onClick={() => setStep(2)} disabled={recipient.length < 5 || !recipientInfo} className="btn-primary">Continue</button>
             </motion.div>
           )}
 

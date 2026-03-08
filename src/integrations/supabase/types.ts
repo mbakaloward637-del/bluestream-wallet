@@ -581,6 +581,20 @@ export type Database = {
         }
         Returns: boolean
       }
+      lookup_recipient: {
+        Args: { lookup_type: string; lookup_value: string }
+        Returns: Json
+      }
+      transfer_funds: {
+        Args: {
+          p_amount: number
+          p_pin?: string
+          p_recipient_phone: string
+          p_recipient_wallet: string
+          p_sender_id: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       account_status: "active" | "frozen" | "suspended" | "banned"
