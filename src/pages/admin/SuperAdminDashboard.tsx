@@ -1,74 +1,80 @@
-import { Users, Wallet, TrendingUp, TrendingDown, Clock, UserCheck, ArrowLeftRight, DollarSign, Activity } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from "recharts";
-import { dailyTransactionData, walletActivityData, mockAdminTransactions, mockActivityLogs } from "@/data/mockData";
-
-const stats = [
-  { label: "Total Users", value: "1,247", icon: Users, bg: "bg-primary/10", color: "text-primary", change: "+12%" },
-  { label: "Active Wallets", value: "1,189", icon: Wallet, bg: "bg-success/10", color: "text-success", change: "+8%" },
-  { label: "Total Wallet Balance", value: "KES 14.2M", icon: DollarSign, bg: "bg-primary/10", color: "text-primary", change: "+18%" },
-  { label: "Total Deposits", value: "KES 2.1M", icon: TrendingUp, bg: "bg-success/10", color: "text-success", change: "+23%" },
-  { label: "Total Withdrawals", value: "KES 890K", icon: TrendingDown, bg: "bg-warning/10", color: "text-warning", change: "-5%" },
-  { label: "Platform Revenue", value: "KES 127K", icon: DollarSign, bg: "bg-success/10", color: "text-success", change: "+34%" },
-  { label: "Pending Transactions", value: "14", icon: Clock, bg: "bg-warning/10", color: "text-warning", change: "" },
-  { label: "Pending KYC", value: "23", icon: UserCheck, bg: "bg-primary/10", color: "text-primary", change: "" },
-];
-
-const monthlyRevenue = [
-  { month: "Oct", revenue: 78000 },
-  { month: "Nov", revenue: 92000 },
-  { month: "Dec", revenue: 105000 },
-  { month: "Jan", revenue: 112000 },
-  { month: "Feb", revenue: 118000 },
-  { month: "Mar", revenue: 127000 },
-];
-
-const userGrowth = [
-  { month: "Oct", users: 820, newUsers: 45 },
-  { month: "Nov", users: 890, newUsers: 70 },
-  { month: "Dec", users: 980, newUsers: 90 },
-  { month: "Jan", users: 1080, newUsers: 100 },
-  { month: "Feb", users: 1170, newUsers: 90 },
-  { month: "Mar", users: 1247, newUsers: 77 },
-];
-
-const recentActivity = [
-  { text: "Alice Wanjiku deposited KES 5,000 via M-Pesa", time: "2 min ago", type: "transaction" },
-  { text: "James Mwangi sent KES 1,200 to Sarah Ochieng", time: "15 min ago", type: "transaction" },
-  { text: "New user registered: Hassan Ahmed", time: "30 min ago", type: "user" },
-  { text: "Admin Sarah Ochieng approved KYC for Alice Wanjiku", time: "45 min ago", type: "admin" },
-  { text: "Brian Otieno requested withdrawal of KES 2,000", time: "1 hr ago", type: "transaction" },
-  { text: "System alert: High transaction volume detected", time: "1.5 hrs ago", type: "system" },
-  { text: "Grace Achieng flagged for suspicious withdrawal", time: "2 hrs ago", type: "alert" },
-  { text: "Exchange rate updated: USD/KES 129.50", time: "3 hrs ago", type: "system" },
-];
-
-const getTypeColor = (type: string) => {
-  switch (type) {
-    case "transaction": return "bg-primary";
-    case "user": return "bg-success";
-    case "admin": return "bg-primary";
-    case "system": return "bg-warning";
-    case "alert": return "bg-destructive";
-    default: return "bg-muted-foreground";
-  }
-};
+import { Users, Wallet, TrendingUp, TrendingDown, Clock, UserCheck, DollarSign, Loader2 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, LineChart, Line } from "recharts";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 
 const SuperAdminDashboard = () => {
+  const { data: stats, isLoading } = useQuery({
+    queryKey: ["superadmin-stats"],
+    queryFn: async () => {
+      const [profiles, wallets, transactions, pendingKyc, pendingWithdrawals, recentLogs] = await Promise.all([
+        supabase.from("profiles").select("id", { count: "exact", head: true }),
+        supabase.from("wallets").select("balance"),
+        supabase.from("transactions").select("id, type, amount, fee, status, created_at, currency").order("created_at", { ascending: false }).limit(100),
+        supabase.from("profiles").select("id", { count: "exact", head: true }).eq("kyc_status", "pending"),
+        supabase.from("withdrawal_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+        supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(8),
+      ]);
+
+      const txs = transactions.data || [];
+      const totalBalance = (wallets.data || []).reduce((s, w) => s + Number(w.balance), 0);
+      const totalDeposits = txs.filter(t => t.type === "deposit" && t.status === "completed").reduce((s, t) => s + Number(t.amount), 0);
+      const totalWithdrawals = txs.filter(t => t.type === "withdraw").reduce((s, t) => s + Number(t.amount), 0);
+      const totalFees = txs.filter(t => t.status === "completed").reduce((s, t) => s + Number(t.fee || 0), 0);
+      const pendingTxs = txs.filter(t => t.status === "pending").length;
+
+      // Build daily chart data from transactions
+      const dayMap: Record<string, { deposits: number; withdrawals: number; transfers: number; airtime: number }> = {};
+      const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      days.forEach(d => dayMap[d] = { deposits: 0, withdrawals: 0, transfers: 0, airtime: 0 });
+      txs.forEach(tx => {
+        const day = days[new Date(tx.created_at).getDay()];
+        if (tx.type === "deposit") dayMap[day].deposits += Number(tx.amount);
+        else if (tx.type === "withdraw") dayMap[day].withdrawals += Number(tx.amount);
+        else if (tx.type === "send") dayMap[day].transfers += Number(tx.amount);
+        else if (tx.type === "airtime") dayMap[day].airtime += Number(tx.amount);
+      });
+      const dailyData = days.map(d => ({ day: d, ...dayMap[d] }));
+
+      return {
+        totalUsers: profiles.count || 0,
+        activeWallets: wallets.data?.length || 0,
+        totalBalance,
+        totalDeposits,
+        totalWithdrawals,
+        totalFees,
+        pendingKyc: pendingKyc.count || 0,
+        pendingWithdrawals: pendingWithdrawals.count || 0,
+        pendingTxs,
+        recentLogs: recentLogs.data || [],
+        recentTxs: txs.slice(0, 10),
+        dailyData,
+      };
+    },
+  });
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
+
+  const statCards = [
+    { label: "Total Users", value: stats?.totalUsers || 0, icon: Users, bg: "bg-primary/10", color: "text-primary" },
+    { label: "Active Wallets", value: stats?.activeWallets || 0, icon: Wallet, bg: "bg-success/10", color: "text-success" },
+    { label: "Total Balance", value: `KES ${(stats?.totalBalance || 0).toLocaleString()}`, icon: DollarSign, bg: "bg-primary/10", color: "text-primary" },
+    { label: "Total Deposits", value: `KES ${(stats?.totalDeposits || 0).toLocaleString()}`, icon: TrendingUp, bg: "bg-success/10", color: "text-success" },
+    { label: "Total Withdrawals", value: `KES ${(stats?.totalWithdrawals || 0).toLocaleString()}`, icon: TrendingDown, bg: "bg-warning/10", color: "text-warning" },
+    { label: "Platform Revenue", value: `KES ${(stats?.totalFees || 0).toLocaleString()}`, icon: DollarSign, bg: "bg-success/10", color: "text-success" },
+    { label: "Pending Transactions", value: stats?.pendingTxs || 0, icon: Clock, bg: "bg-warning/10", color: "text-warning" },
+    { label: "Pending KYC", value: stats?.pendingKyc || 0, icon: UserCheck, bg: "bg-primary/10", color: "text-primary" },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {stats.map((stat) => (
+        {statCards.map((stat) => (
           <div key={stat.label} className="section-card">
             <div className="flex items-center justify-between mb-2">
               <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stat.bg}`}>
                 <stat.icon size={16} className={stat.color} />
               </div>
-              {stat.change && (
-                <span className={`text-[10px] font-semibold ${stat.change.startsWith("+") ? "text-success" : "text-destructive"}`}>
-                  {stat.change}
-                </span>
-              )}
             </div>
             <p className="text-xl font-bold text-foreground">{stat.value}</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">{stat.label}</p>
@@ -76,122 +82,75 @@ const SuperAdminDashboard = () => {
         ))}
       </div>
 
-      {/* Charts Row 1 */}
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="section-card">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Daily Transaction Volume (KES)</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-4">Transaction Volume by Day</h3>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={dailyTransactionData}>
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" tickFormatter={(v) => `${v / 1000}K`} />
-              <Tooltip contentStyle={{ background: "hsl(0 0% 100%)", border: "1px solid hsl(220 13% 91%)", borderRadius: 12, fontSize: 12 }} formatter={(value: number) => [`KES ${value.toLocaleString()}`, undefined]} />
-              <Bar dataKey="deposits" fill="hsl(217 91% 50%)" radius={[4, 4, 0, 0]} name="Deposits" />
-              <Bar dataKey="withdrawals" fill="hsl(38 92% 50%)" radius={[4, 4, 0, 0]} name="Withdrawals" />
-              <Bar dataKey="transfers" fill="hsl(142 71% 40%)" radius={[4, 4, 0, 0]} name="Transfers" />
+            <BarChart data={stats?.dailyData || []}>
+              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+              <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => `${v / 1000}K`} />
+              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} formatter={(value: number) => [`KES ${value.toLocaleString()}`, undefined]} />
+              <Bar dataKey="deposits" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} name="Deposits" />
+              <Bar dataKey="withdrawals" fill="hsl(var(--warning))" radius={[4, 4, 0, 0]} name="Withdrawals" />
+              <Bar dataKey="transfers" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Transfers" />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="section-card">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Monthly Revenue Growth</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={monthlyRevenue}>
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" tickFormatter={(v) => `${v / 1000}K`} />
-              <Tooltip contentStyle={{ background: "hsl(0 0% 100%)", border: "1px solid hsl(220 13% 91%)", borderRadius: 12, fontSize: 12 }} formatter={(value: number) => [`KES ${value.toLocaleString()}`, undefined]} />
-              <Area type="monotone" dataKey="revenue" stroke="hsl(142 71% 40%)" fill="hsl(142 71% 40% / 0.15)" name="Revenue" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Charts Row 2 */}
-      <div className="grid lg:grid-cols-2 gap-4">
         <div className="section-card">
           <h3 className="text-sm font-semibold text-foreground mb-4">Deposits vs Withdrawals</h3>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={dailyTransactionData}>
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" tickFormatter={(v) => `${v / 1000}K`} />
-              <Tooltip contentStyle={{ background: "hsl(0 0% 100%)", border: "1px solid hsl(220 13% 91%)", borderRadius: 12, fontSize: 12 }} formatter={(value: number) => [`KES ${value.toLocaleString()}`, undefined]} />
-              <Area type="monotone" dataKey="deposits" stroke="hsl(142 71% 40%)" fill="hsl(142 71% 40% / 0.15)" name="Deposits" />
-              <Area type="monotone" dataKey="withdrawals" stroke="hsl(0 72% 51%)" fill="hsl(0 72% 51% / 0.1)" name="Withdrawals" />
+            <AreaChart data={stats?.dailyData || []}>
+              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+              <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => `${v / 1000}K`} />
+              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} formatter={(value: number) => [`KES ${value.toLocaleString()}`, undefined]} />
+              <Area type="monotone" dataKey="deposits" stroke="hsl(var(--success))" fill="hsl(var(--success) / 0.15)" name="Deposits" />
+              <Area type="monotone" dataKey="withdrawals" stroke="hsl(var(--destructive))" fill="hsl(var(--destructive) / 0.1)" name="Withdrawals" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
-
-        <div className="section-card">
-          <h3 className="text-sm font-semibold text-foreground mb-4">User Growth</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={userGrowth}>
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" />
-              <Tooltip contentStyle={{ background: "hsl(0 0% 100%)", border: "1px solid hsl(220 13% 91%)", borderRadius: 12, fontSize: 12 }} />
-              <Line type="monotone" dataKey="users" stroke="hsl(217 91% 50%)" strokeWidth={2} dot={{ r: 3 }} name="Total Users" />
-              <Line type="monotone" dataKey="newUsers" stroke="hsl(142 71% 40%)" strokeWidth={2} dot={{ r: 3 }} name="New Users" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
       </div>
 
-      {/* Charts Row 3 */}
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="section-card">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Wallet Activity (6 Months)</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={walletActivityData}>
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" />
-              <Tooltip contentStyle={{ background: "hsl(0 0% 100%)", border: "1px solid hsl(220 13% 91%)", borderRadius: 12, fontSize: 12 }} />
-              <Line type="monotone" dataKey="active" stroke="hsl(217 91% 50%)" strokeWidth={2} dot={{ r: 3 }} name="Active Wallets" />
-              <Line type="monotone" dataKey="new" stroke="hsl(142 71% 40%)" strokeWidth={2} dot={{ r: 3 }} name="New Registrations" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="section-card">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Airtime Purchases (Daily)</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={dailyTransactionData}>
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(220 10% 50%)" tickFormatter={(v) => `${v / 1000}K`} />
-              <Tooltip contentStyle={{ background: "hsl(0 0% 100%)", border: "1px solid hsl(220 13% 91%)", borderRadius: 12, fontSize: 12 }} formatter={(value: number) => [`KES ${value.toLocaleString()}`, undefined]} />
-              <Bar dataKey="airtime" fill="hsl(142 71% 40%)" radius={[4, 4, 0, 0]} name="Airtime" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Activity Feed & Latest Transactions */}
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className="section-card">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Recent Activity Feed</h3>
-          <div className="space-y-0">
-            {recentActivity.map((a, i) => (
-              <div key={i} className="flex items-start gap-3 py-2.5 border-b border-border last:border-0">
-                <div className={`h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 ${getTypeColor(a.type)}`} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground">{a.text}</p>
-                  <p className="text-[10px] text-muted-foreground">{a.time}</p>
+          <h3 className="text-sm font-semibold text-foreground mb-3">Latest Transactions</h3>
+          {(stats?.recentTxs || []).length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4">No transactions yet</p>
+          ) : (
+            <div className="space-y-0">
+              {(stats?.recentTxs || []).map((tx: any) => (
+                <div key={tx.id} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground capitalize">{tx.type}</p>
+                    <p className="text-[10px] text-muted-foreground">{new Date(tx.created_at).toLocaleString()}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-3">
+                    <p className="text-xs font-semibold text-foreground">{tx.currency} {Number(tx.amount).toLocaleString()}</p>
+                    <p className={`text-[10px] font-medium capitalize ${tx.status === "completed" ? "text-success" : tx.status === "pending" ? "text-warning" : "text-destructive"}`}>{tx.status}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="section-card">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Admin Actions Log</h3>
-          <div className="space-y-0">
-            {mockActivityLogs.slice(0, 6).map((log) => (
-              <div key={log.id} className="flex items-start gap-3 py-2.5 border-b border-border last:border-0">
-                <div className="h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 bg-primary" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground"><span className="font-medium">{log.adminName}</span>: {log.action}</p>
-                  <p className="text-[10px] text-muted-foreground">{log.timestamp} • IP: {log.ipAddress}</p>
+          <h3 className="text-sm font-semibold text-foreground mb-3">Admin Activity Log</h3>
+          {(stats?.recentLogs || []).length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4">No activity logs yet</p>
+          ) : (
+            <div className="space-y-0">
+              {(stats?.recentLogs || []).map((log: any) => (
+                <div key={log.id} className="flex items-start gap-3 py-2.5 border-b border-border last:border-0">
+                  <div className="h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 bg-primary" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground">{log.action}</p>
+                    <p className="text-[10px] text-muted-foreground">{new Date(log.created_at).toLocaleString()}{log.ip_address ? ` • IP: ${log.ip_address}` : ""}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
