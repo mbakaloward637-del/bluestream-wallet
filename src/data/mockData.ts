@@ -1,15 +1,5 @@
 import { Transaction } from "@/components/TransactionItem";
-
-export const mockUser = {
-  firstName: "James",
-  lastName: "Mwangi",
-  email: "james.mwangi@email.com",
-  phone: "+254712345678",
-  walletNumber: "WLT8880001023",
-  walletBalance: 12450.75,
-  currency: "KES",
-  avatarInitials: "JM",
-};
+import { DemoUser } from "@/context/AuthContext";
 
 export const mockTransactions: Transaction[] = [
   {
@@ -74,3 +64,22 @@ export const mockCard = {
   cvv: "321",
   name: "JAMES MWANGI",
 };
+
+// Additional mock users for admin panel display (non-demo, simulated platform users)
+export const mockPlatformUsers: Array<{
+  id: string;
+  name: string;
+  email: string;
+  walletNumber: string;
+  balance: number;
+  status: "active" | "frozen";
+  kycStatus: "pending" | "approved" | "rejected";
+  country: string;
+  joined: string;
+}> = [
+  { id: "p1", name: "Alice Wanjiku", email: "alice@mail.com", walletNumber: "WLT8880002001", balance: 8200, status: "active", kycStatus: "approved", country: "Kenya", joined: "2025-01-12" },
+  { id: "p2", name: "Brian Otieno", email: "brian@mail.com", walletNumber: "WLT8880002002", balance: 1500, status: "active", kycStatus: "pending", country: "Kenya", joined: "2025-02-04" },
+  { id: "p3", name: "Clara Adesanya", email: "clara@mail.com", walletNumber: "WLT8880002003", balance: 32000, status: "frozen", kycStatus: "rejected", country: "Nigeria", joined: "2025-01-28" },
+  { id: "p4", name: "Daniel Maina", email: "daniel@mail.com", walletNumber: "WLT8880002004", balance: 600, status: "active", kycStatus: "pending", country: "Kenya", joined: "2025-03-01" },
+  { id: "p5", name: "Esther Njeri", email: "esther@mail.com", walletNumber: "WLT8880002005", balance: 19400, status: "active", kycStatus: "approved", country: "Kenya", joined: "2024-12-05" },
+];
