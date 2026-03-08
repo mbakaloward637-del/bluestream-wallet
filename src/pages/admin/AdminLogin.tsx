@@ -37,10 +37,10 @@ const AdminLogin = () => {
   };
 
   const handleOtp = () => {
-    // Mock OTP verification - accept any 6-digit code
     if (otp.length >= 4) {
+      const { user } = useAuth();
       toast.success("Authentication successful");
-      navigate("/admin/dashboard");
+      navigate(user?.role === "superadmin" ? "/admin/super-dashboard" : "/admin/dashboard");
     } else {
       toast.error("Invalid OTP. Enter the code sent to your device.");
     }
