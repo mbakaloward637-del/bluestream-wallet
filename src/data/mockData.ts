@@ -1,5 +1,4 @@
 import { Transaction } from "@/components/TransactionItem";
-import { DemoUser } from "@/context/AuthContext";
 
 export const mockTransactions: Transaction[] = [
   {
@@ -10,6 +9,7 @@ export const mockTransactions: Transaction[] = [
     description: "M-Pesa Deposit",
     date: "Today, 2:30 PM",
     status: "completed",
+    reference: "TXN00000001",
   },
   {
     id: "2",
@@ -19,6 +19,7 @@ export const mockTransactions: Transaction[] = [
     description: "Sent to Sarah Ochieng",
     date: "Today, 11:15 AM",
     status: "completed",
+    reference: "TXN00000002",
   },
   {
     id: "3",
@@ -28,6 +29,7 @@ export const mockTransactions: Transaction[] = [
     description: "From David Kimani",
     date: "Yesterday, 4:45 PM",
     status: "completed",
+    reference: "TXN00000003",
   },
   {
     id: "4",
@@ -37,6 +39,7 @@ export const mockTransactions: Transaction[] = [
     description: "Bank Withdrawal - Equity",
     date: "Yesterday, 9:00 AM",
     status: "pending",
+    reference: "TXN00000004",
   },
   {
     id: "5",
@@ -46,6 +49,7 @@ export const mockTransactions: Transaction[] = [
     description: "KES → USD Exchange",
     date: "Mar 5, 3:20 PM",
     status: "completed",
+    reference: "TXN00000005",
   },
   {
     id: "6",
@@ -55,6 +59,7 @@ export const mockTransactions: Transaction[] = [
     description: "Card Deposit - Visa",
     date: "Mar 4, 1:00 PM",
     status: "completed",
+    reference: "TXN00000006",
   },
 ];
 
@@ -65,7 +70,6 @@ export const mockCard = {
   name: "JAMES MWANGI",
 };
 
-// Additional mock users for admin panel display (non-demo, simulated platform users)
 export const mockPlatformUsers: Array<{
   id: string;
   name: string;

@@ -17,6 +17,8 @@ import Withdraw from "./pages/Withdraw";
 import AdminPanel from "./pages/AdminPanel";
 import BuyAirtime from "./pages/BuyAirtime";
 import StatementDownload from "./pages/StatementDownload";
+import Profile from "./pages/Profile";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -42,6 +44,8 @@ const App = () => (
             <Route path="/admin" element={<AdminPanel />} />
             <Route path="/buy-airtime" element={<BuyAirtime />} />
             <Route path="/statement" element={<StatementDownload />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
