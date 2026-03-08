@@ -40,8 +40,9 @@ const Exchange = () => {
       if (from !== wallet.currency) throw new Error("Can only exchange from your wallet currency");
       if (Number(wallet.balance) < Number(amount)) throw new Error("Insufficient balance");
 
-      // Debit and record (in production, separate wallets per currency)
-      await supabase.from("wallets").update({ balance: Number(wallet.balance) - Number(amount) }).eq("id", wallet.id);
+      // Debit original amount and credit converted amount (same wallet for now)
+      const newBalance = Number(wallet.balance) - Number(amount) + Number(converted);
+      await supabase.from("wallets").update({ balance: newBalance }).eq("id", wallet.id);
       await supabase.from("transactions").insert({
         reference: `EXC${Date.now()}`,
         type: "exchange",

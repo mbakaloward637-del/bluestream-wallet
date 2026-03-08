@@ -226,13 +226,19 @@ const Register = () => {
     setLoading(false);
 
     if (result.success) {
-      // Upload KYC documents after registration (user is now created)
-      // The auth trigger creates the profile, so we can upload docs
-      // We get the user ID from the session after signup
       const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.id && (idFront.file || idBack.file || selfie.file)) {
-        toast.info("Uploading verification documents...");
-        await uploadKycDocuments(session.user.id);
+      if (session?.user?.id) {
+        // Store wallet PIN (bcrypt hashed server-side)
+        if (pin) {
+          await supabase.functions.invoke("set-wallet-pin", {
+            body: { pin },
+          });
+        }
+        // Upload KYC documents
+        if (idFront.file || idBack.file || selfie.file) {
+          toast.info("Uploading verification documents...");
+          await uploadKycDocuments(session.user.id);
+        }
       }
       toast.success("Account created! Please check your email to verify.");
       navigate("/login");

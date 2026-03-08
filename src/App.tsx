@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -59,27 +60,29 @@ const App = () => (
         <InstallPWA />
         <BrowserRouter>
           <Routes>
-            {/* User routes */}
+            {/* Public routes */}
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/send" element={<SendMoney />} />
-            <Route path="/load" element={<LoadWallet />} />
-            <Route path="/transactions" element={<Transactions />} />
-            <Route path="/card" element={<CardPage />} />
-            <Route path="/exchange" element={<Exchange />} />
-            <Route path="/withdraw" element={<Withdraw />} />
-            <Route path="/buy-airtime" element={<BuyAirtime />} />
-            <Route path="/statement" element={<StatementDownload />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/notifications" element={<Notifications />} />
+
+            {/* Protected user routes */}
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/send" element={<ProtectedRoute><SendMoney /></ProtectedRoute>} />
+            <Route path="/load" element={<ProtectedRoute><LoadWallet /></ProtectedRoute>} />
+            <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
+            <Route path="/card" element={<ProtectedRoute><CardPage /></ProtectedRoute>} />
+            <Route path="/exchange" element={<ProtectedRoute><Exchange /></ProtectedRoute>} />
+            <Route path="/withdraw" element={<ProtectedRoute><Withdraw /></ProtectedRoute>} />
+            <Route path="/buy-airtime" element={<ProtectedRoute><BuyAirtime /></ProtectedRoute>} />
+            <Route path="/statement" element={<ProtectedRoute><StatementDownload /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
 
             {/* Admin routes */}
             <Route path="/admin/login" element={<AdminLogin />} />
-            <Route path="/admin" element={<AdminLayout />}>
+            <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminLayout /></ProtectedRoute>}>
               <Route index element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="dashboard" element={<AdminDashboard />} />
               <Route path="users" element={<AdminUsers />} />
