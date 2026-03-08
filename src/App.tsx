@@ -15,6 +15,8 @@ import CardPage from "./pages/CardPage";
 import Exchange from "./pages/Exchange";
 import Withdraw from "./pages/Withdraw";
 import AdminPanel from "./pages/AdminPanel";
+import BuyAirtime from "./pages/BuyAirtime";
+import StatementDownload from "./pages/StatementDownload";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
