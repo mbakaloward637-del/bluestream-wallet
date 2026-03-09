@@ -1,89 +1,149 @@
 
 
-## Project Analysis
+## Kiro AI Assistant Script for AbanRemit Production Deployment
 
-Your project is a fully migrated full-stack fintech application:
-
-- **Frontend**: Vite + React 18 + TypeScript + Tailwind + shadcn/ui (PWA-enabled)
-- **Backend**: Laravel 10 REST API with JWT auth, UUID models, atomic transactions
-- **Target**: cPanel shared hosting on `abanremit.com` (same-domain architecture)
-- **Services**: M-Pesa (Safaricom), Paystack, Instalipa (airtime), TalkSasa (SMS), ExchangeRate-API
-
-All Supabase dependencies have been removed from active frontend code. The app is ready for production deployment.
+Below is a complete instruction script you can paste into **Kiro** (Amazon's AI coding assistant) to guide it through your project's production deployment. Copy the entire block below.
 
 ---
 
-## GitHub Copilot Prompt for VS Code
-
-Open **GitHub Copilot Chat** in Visual Studio Code and paste this prompt:
+### Kiro Prompt Script
 
 ```text
-@workspace I need to deploy this full-stack app (React frontend + Laravel backend) to production on cPanel at abanremit.com.
+You are acting as a senior DevOps and Laravel engineer for the AbanRemit fintech platform. This is a full-stack application with a React (Vite) frontend and a Laravel 10 PHP backend using JWT authentication and UUID primary keys.
 
-Please review #file:php-backend/DEPLOYMENT.md and #file:.github/copilot-instructions.md for the full architecture and rules.
+## PROJECT ARCHITECTURE
 
-Walk me through deployment step-by-step, one at a time. Wait for my confirmation before proceeding to the next step.
+Frontend: Vite + React 18 + TypeScript + Tailwind CSS + shadcn/ui (PWA-enabled)
+Backend: Laravel 10 REST API with JWT auth (tymon/jwt-auth), UUID models, M-Pesa, Paystack, Instalipa integrations
+Database: MySQL 5.7+ with UUID primary keys on ALL tables
+Hosting: cPanel shared hosting at abanremit.com
+Domain: Same-domain setup — React SPA at public_html/, Laravel API symlinked at public_html/api/
 
-Here's what I need help with:
+## DIRECTORY STRUCTURE ON SERVER
 
-### Step 1: Local Preparation
-- Create `.env.production` with `VITE_API_BASE_URL=https://abanremit.com/api/v1`
-- Build the React frontend: `npm run build`
-- Verify the `dist/` output
+/home/abancool/
+├── laravel/                    ← Laravel app (OUTSIDE public_html)
+│   ├── app/
+│   ├── bootstrap/
+│   ├── config/
+│   ├── database/
+│   ├── public/                 ← Symlinked to public_html/api/
+│   ├── routes/
+│   ├── storage/
+│   ├── vendor/
+│   ├── .env
+│   └── artisan
+└── public_html/                ← React SPA build output
+    ├── index.html
+    ├── assets/
+    ├── .htaccess               ← Routes /api → Laravel, else → React SPA
+    └── api/                    ← Symlink → /home/abancool/laravel/public/
 
-### Step 2: Upload Laravel Backend
-- Tell me exactly which files/folders from `php-backend/` to zip and upload to `/home/abancool/laravel/` via cPanel File Manager
-- Exclude: `node_modules`, `.git`, `frontend-api-service/`, `deployment-files/`
+## CRITICAL RULES — DO NOT VIOLATE
 
-### Step 3: Server Setup (SSH or cPanel Terminal)
-- `cd /home/abancool/laravel && composer install --no-dev --optimize-autoloader`
-- `php artisan key:generate`
-- `php artisan jwt:secret`
-- `chmod -R 755 storage bootstrap/cache`
-- `php artisan storage:link`
+1. ALL database tables use UUID primary keys (CHAR(36)), never BIGINT auto-increment
+2. The Notification model uses table name `notifications_custom` (not `notifications`)
+3. User roles are stored in a separate `user_roles` table, NEVER on the users table
+4. Transaction reference prefixes: TRF (transfer), AIR (airtime), DEP (deposit), WDR (withdrawal), EXC (exchange), REV (reversal), MPD (mpesa deposit), MPW (mpesa withdrawal), STM (statement)
+5. M-Pesa amounts are integers (no decimals)
+6. Paystack amounts are in kobo (multiply by 100 when sending, divide by 100 when receiving)
+7. Webhook routes MUST stay OUTSIDE auth:api middleware group
+8. APP_DEBUG must be false in production
+9. The fee_config table name is `fee_config` (singular), not `fee_configs`
+10. Never store sensitive keys in frontend code — all API keys go in Laravel .env only
 
-### Step 4: Database
-- `php artisan migrate`
-- `php artisan db:seed`
-- Confirm seeded super admin: admin@abanremit.com / Admin@123456
+## TASK LIST — EXECUTE IN ORDER
 
-### Step 5: Symlink API
-- `ln -s /home/abancool/laravel/public /home/abancool/public_html/api`
+### Task 1: Validate Laravel .env for Production
+Review the .env file and ensure these are set correctly:
+- APP_ENV=production
+- APP_DEBUG=false
+- APP_URL=https://abanremit.com
+- FRONTEND_URL=https://abanremit.com
+- DB_CONNECTION=mysql
+- DB_HOST=localhost
+- DB_DATABASE=abancool_aban
+- DB_USERNAME=abancool_labo
+- JWT_SECRET must be generated (php artisan jwt:secret)
+- CORS_ALLOWED_ORIGINS=https://abanremit.com
+- All payment gateway keys (PAYSTACK_SECRET_KEY, MPESA_CONSUMER_KEY, etc.)
 
-### Step 6: Upload React Frontend
-- Upload contents of `dist/` to `public_html/` (DO NOT overwrite the `api` symlink)
-- Copy `php-backend/deployment-files/public_html/.htaccess` to `public_html/.htaccess`
+### Task 2: Verify Database Migration
+Run: php artisan migrate:status
+Ensure ALL tables exist:
+- users, profiles, wallets, user_roles, transactions
+- withdrawal_requests, notifications_custom, exchange_rates
+- fee_config, virtual_cards, activity_logs, security_alerts
+- support_tickets, payment_gateways, platform_config
+- personal_access_tokens
 
-### Step 7: Cron Job
-- Set up Laravel scheduler: `* * * * * cd /home/abancool/laravel && php artisan schedule:run >> /dev/null 2>&1`
+If any are missing, run: php artisan migrate
 
-### Step 8: Verification
-- Test: `curl https://abanremit.com/api/v1/exchange-rates`
-- Test: Visit https://abanremit.com (should show login page)
-- Test: Login with seeded admin credentials
+### Task 3: Verify Seeder Data
+Run: php artisan db:seed (only on first deploy)
+This creates:
+- Super Admin: admin@abanremit.com / Admin@123456
+- Default exchange rates (KES ↔ USD, GBP, EUR)
+- Default fee config (1.5% transfer, KES 50 withdrawal)
 
-### Step 9: Webhooks
-- Configure Paystack webhook: `https://abanremit.com/api/v1/webhooks/paystack`
-- Configure M-Pesa C2B: `https://abanremit.com/api/v1/webhooks/mpesa/c2b`
-- Configure M-Pesa B2C: `https://abanremit.com/api/v1/webhooks/mpesa/b2c`
-- Configure Instalipa: `https://abanremit.com/api/v1/webhooks/airtime`
+### Task 4: Build React Frontend
+On local machine:
+1. Create .env.production:
+   VITE_API_BASE_URL=https://abanremit.com/api/v1
+2. Run: npm run build
+3. Upload dist/ contents to public_html/ (preserve api/ symlink)
 
-### Step 10: Security Checklist
-- Change super admin password immediately after first login
-- Confirm APP_DEBUG=false in .env
-- Verify SSL is active
-- Remove .env.example from production
-- Set up log rotation for storage/logs/
+### Task 5: Configure .htaccess
+Ensure public_html/.htaccess has:
+- RewriteRule ^api/(.*)$ api/index.php [L]
+- SPA fallback: all non-file routes → index.html
 
-IMPORTANT RULES:
-- Never modify supabase/ files — they are legacy and unused
-- The Notification model uses table name `notifications_custom`
-- All foreign keys use UUID type, never bigint
-- Transaction references: TRF, AIR, DEP, WDR, EXC, REV, MPD, MPW, STM
-- M-Pesa amounts are integers (no decimals)
-- Paystack amounts are in kobo (divide by 100)
-- Webhook routes must stay OUTSIDE auth:api middleware
+### Task 6: Set File Permissions
+chmod -R 755 /home/abancool/laravel/storage
+chmod -R 755 /home/abancool/laravel/bootstrap/cache
+php artisan storage:link
+php artisan config:cache
+php artisan route:cache
 
-Let's start with Step 1. Tell me the exact commands to run.
+### Task 7: Set Up Cron Job
+In cPanel → Cron Jobs:
+* * * * * cd /home/abancool/laravel && php artisan schedule:run >> /dev/null 2>&1
+
+### Task 8: Configure Webhooks
+Paystack: https://abanremit.com/api/v1/webhooks/paystack
+M-Pesa C2B Confirm: https://abanremit.com/api/v1/webhooks/mpesa/c2b
+M-Pesa C2B Validate: https://abanremit.com/api/v1/webhooks/mpesa/validation
+M-Pesa B2C Result: https://abanremit.com/api/v1/webhooks/mpesa/b2c
+Instalipa: https://abanremit.com/api/v1/webhooks/airtime
+
+### Task 9: Post-Deploy Verification
+Test these endpoints:
+- curl https://abanremit.com/api → should return JSON
+- curl https://abanremit.com/api/v1/exchange-rates → should return rates
+- Visit https://abanremit.com → should show login page
+- Login with admin@abanremit.com / Admin@123456 → should work
+
+### Task 10: Security Hardening
+- Change super admin password immediately
+- Verify SSL is active (Let's Encrypt)
+- Delete .env.example from server
+- Ensure storage/logs/ has log rotation
+- Run: php artisan config:cache && php artisan route:cache
+
+## HOW TO HELP ME
+
+Walk me through each task one at a time. After each task, ask me to confirm completion before moving to the next. If I encounter errors, help me debug using storage/logs/laravel.log output. Always prioritize data safety — never suggest dropping tables with existing data.
 ```
+
+---
+
+### How to Use This
+
+1. Open **Kiro** in VS Code
+2. Start a new chat session
+3. Paste the entire script above
+4. Kiro will walk you through each step sequentially
+5. Confirm each step before it moves to the next
+
+The script covers the same deployment flow as your Copilot prompt but is structured specifically for Kiro's task-oriented workflow, with explicit rules to prevent common mistakes with your UUID-based schema and payment integrations.
 
