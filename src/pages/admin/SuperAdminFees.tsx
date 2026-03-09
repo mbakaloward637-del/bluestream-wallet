@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { DollarSign, Save, Shield, Loader2, Plus } from "lucide-react";
+import { DollarSign, Save, Shield, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-const TRANSACTION_TYPES = ["deposit", "send", "receive", "withdraw", "exchange", "airtime"] as const;
 const FEE_TYPES = ["flat", "percentage", "tiered"] as const;
 
 const SuperAdminFees = () => {
@@ -16,43 +15,33 @@ const SuperAdminFees = () => {
   const { data: fees = [], isLoading } = useQuery({
     queryKey: ["admin-fee-config"],
     queryFn: async () => {
-      const { data } = await supabase.from("fee_config").select("*").order("transaction_type");
-      return data || [];
+      return await api.admin.fees.list();
     },
   });
 
-  const [localFees, setLocalFees] = useState<typeof fees>([]);
-
-  // Sync from DB on load
+  const [localFees, setLocalFees] = useState<any[]>([]);
   const displayFees = localFees.length > 0 ? localFees : fees;
 
   const updateLocalFee = (id: string, updates: Record<string, any>) => {
     const current = localFees.length > 0 ? localFees : fees;
-    setLocalFees(current.map(f => f.id === id ? { ...f, ...updates } : f));
+    setLocalFees(current.map((f: any) => f.id === id ? { ...f, ...updates } : f));
   };
 
   const handleSave = async () => {
     setSaving(true);
     try {
       for (const fee of displayFees) {
-        await supabase.from("fee_config").update({
-          fee_type: fee.fee_type,
-          flat_amount: fee.flat_amount,
-          percentage: fee.percentage,
-          min_amount: fee.min_amount,
-          max_amount: fee.max_amount,
-          is_active: fee.is_active,
-          updated_by: user?.id || null,
-        }).eq("id", fee.id);
+        await api.admin.fees.update(fee.id, {
+          fee_type: fee.fee_type, flat_amount: fee.flat_amount, percentage: fee.percentage,
+          min_amount: fee.min_amount, max_amount: fee.max_amount, is_active: fee.is_active,
+        });
       }
       queryClient.invalidateQueries({ queryKey: ["admin-fee-config"] });
       setLocalFees([]);
       toast.success("Fee configuration saved successfully");
     } catch (err: any) {
       toast.error(err.message || "Failed to save fees");
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   if (!isSuperAdmin) {
@@ -70,16 +59,14 @@ const SuperAdminFees = () => {
   return (
     <div className="space-y-6">
       <div className="section-card flex items-start gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-          <DollarSign size={18} className="text-primary" />
-        </div>
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 shrink-0"><DollarSign size={18} className="text-primary" /></div>
         <div>
           <p className="text-sm font-semibold text-foreground">Fees & Commissions</p>
           <p className="text-xs text-muted-foreground">Configure platform transaction fees, withdrawal charges, and commissions.</p>
         </div>
       </div>
 
-      {displayFees.map((fee) => (
+      {displayFees.map((fee: any) => (
         <div key={fee.id} className="section-card">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -94,47 +81,30 @@ const SuperAdminFees = () => {
               ))}
             </div>
           </div>
-
           {fee.fee_type === "flat" && (
             <div>
               <label className="label-text">Fixed Amount (KES)</label>
               <input className="input-field" type="number" value={fee.flat_amount ?? 0} onChange={(e) => updateLocalFee(fee.id, { flat_amount: parseFloat(e.target.value) || 0 })} />
             </div>
           )}
-
           {fee.fee_type === "percentage" && (
             <div>
               <label className="label-text">Percentage (%)</label>
               <input className="input-field" type="number" step="0.1" value={fee.percentage ?? 0} onChange={(e) => updateLocalFee(fee.id, { percentage: parseFloat(e.target.value) || 0 })} />
-              <p className="text-[10px] text-muted-foreground mt-1">Example: KES 10,000 → KES {((10000 * (fee.percentage || 0)) / 100).toFixed(0)} fee</p>
             </div>
           )}
-
           {fee.fee_type === "tiered" && (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="label-text">Min Amount (KES)</label>
-                  <input className="input-field text-xs" type="number" value={fee.min_amount ?? 0} onChange={(e) => updateLocalFee(fee.id, { min_amount: parseFloat(e.target.value) || 0 })} />
-                </div>
-                <div>
-                  <label className="label-text">Max Amount (KES)</label>
-                  <input className="input-field text-xs" type="number" value={fee.max_amount ?? 0} onChange={(e) => updateLocalFee(fee.id, { max_amount: parseFloat(e.target.value) || 0 })} />
-                </div>
+                <div><label className="label-text">Min Amount</label><input className="input-field text-xs" type="number" value={fee.min_amount ?? 0} onChange={(e) => updateLocalFee(fee.id, { min_amount: parseFloat(e.target.value) || 0 })} /></div>
+                <div><label className="label-text">Max Amount</label><input className="input-field text-xs" type="number" value={fee.max_amount ?? 0} onChange={(e) => updateLocalFee(fee.id, { max_amount: parseFloat(e.target.value) || 0 })} /></div>
               </div>
-              <div>
-                <label className="label-text">Fee Amount (KES)</label>
-                <input className="input-field text-xs" type="number" value={fee.flat_amount ?? 0} onChange={(e) => updateLocalFee(fee.id, { flat_amount: parseFloat(e.target.value) || 0 })} />
-              </div>
+              <div><label className="label-text">Fee Amount</label><input className="input-field text-xs" type="number" value={fee.flat_amount ?? 0} onChange={(e) => updateLocalFee(fee.id, { flat_amount: parseFloat(e.target.value) || 0 })} /></div>
             </div>
           )}
-
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
             <span className="text-[10px] text-muted-foreground">Active</span>
-            <button
-              onClick={() => updateLocalFee(fee.id, { is_active: !fee.is_active })}
-              className={`w-10 h-5 rounded-full transition-colors ${fee.is_active ? "bg-success" : "bg-border"}`}
-            >
+            <button onClick={() => updateLocalFee(fee.id, { is_active: !fee.is_active })} className={`w-10 h-5 rounded-full transition-colors ${fee.is_active ? "bg-success" : "bg-border"}`}>
               <div className={`w-4 h-4 rounded-full bg-card transition-transform mx-0.5 ${fee.is_active ? "translate-x-5" : ""}`} />
             </button>
           </div>

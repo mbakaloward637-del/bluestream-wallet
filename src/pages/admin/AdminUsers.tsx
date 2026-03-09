@@ -1,34 +1,29 @@
 import { useState } from "react";
 import { Search, KeyRound, Lock, AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
+import { api } from "@/services/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 const AdminUsers = () => {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["admin-users"],
     queryFn: async () => {
-      const { data: profiles } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
-      const { data: wallets } = await supabase.from("wallets").select("*");
-      
-      return (profiles || []).map((p) => {
-        const wallet = (wallets || []).find(w => w.user_id === p.user_id);
-        return { ...p, walletNumber: wallet?.wallet_number || "", balance: Number(wallet?.balance || 0), currency: wallet?.currency || "KES" };
-      });
+      return await api.admin.users();
     },
   });
 
-  const filtered = users.filter(u =>
-    u.first_name.toLowerCase().includes(search.toLowerCase()) ||
-    u.last_name.toLowerCase().includes(search.toLowerCase()) ||
-    u.email.toLowerCase().includes(search.toLowerCase()) ||
-    u.walletNumber.toLowerCase().includes(search.toLowerCase())
+  const filtered = users.filter((u: any) =>
+    (u.first_name || "").toLowerCase().includes(search.toLowerCase()) ||
+    (u.last_name || "").toLowerCase().includes(search.toLowerCase()) ||
+    (u.email || "").toLowerCase().includes(search.toLowerCase()) ||
+    (u.wallet_number || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  const selectedUser = users.find(u => u.user_id === selectedUserId);
+  const selectedUser = users.find((u: any) => u.user_id === selectedUserId || u.id === selectedUserId);
 
   if (selectedUser) {
     return (
@@ -37,11 +32,11 @@ const AdminUsers = () => {
         <div className="section-card">
           <div className="flex items-center gap-4 mb-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-lg font-bold text-primary-foreground">
-              {selectedUser.first_name[0]}{selectedUser.last_name[0]}
+              {(selectedUser.first_name || "?")[0]}{(selectedUser.last_name || "?")[0]}
             </div>
             <div>
               <h2 className="text-lg font-bold text-foreground">{selectedUser.first_name} {selectedUser.last_name}</h2>
-              <p className="text-sm text-muted-foreground">{selectedUser.walletNumber}</p>
+              <p className="text-sm text-muted-foreground">{selectedUser.wallet_number || ""}</p>
             </div>
             <span className={`ml-auto text-[10px] font-semibold uppercase px-2 py-1 rounded-md ${
               selectedUser.status === "active" ? "bg-success/10 text-success" : selectedUser.status === "frozen" ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"
@@ -51,7 +46,7 @@ const AdminUsers = () => {
             {[
               { label: "Email", value: selectedUser.email },
               { label: "Phone", value: selectedUser.phone || "—" },
-              { label: "Balance", value: `${selectedUser.currency} ${selectedUser.balance.toLocaleString()}` },
+              { label: "Balance", value: `${selectedUser.currency || "KES"} ${Number(selectedUser.balance || 0).toLocaleString()}` },
               { label: "Country", value: selectedUser.country },
               { label: "KYC Status", value: selectedUser.kyc_status },
               { label: "Registered", value: new Date(selectedUser.created_at).toLocaleDateString() },
@@ -66,21 +61,23 @@ const AdminUsers = () => {
         <div className="section-card">
           <h3 className="text-sm font-semibold text-foreground mb-3">Admin Actions</h3>
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => toast.success("Password reset link sent")} className="flex items-center gap-2 rounded-xl border border-border py-3 px-4 text-xs font-medium text-foreground hover:bg-secondary transition-colors">
+            <button onClick={async () => {
+              try { await api.admin.resetUserPassword(selectedUser.user_id || selectedUser.id); toast.success("Password reset link sent"); } catch { toast.error("Failed"); }
+            }} className="flex items-center gap-2 rounded-xl border border-border py-3 px-4 text-xs font-medium text-foreground hover:bg-secondary transition-colors">
               <KeyRound size={14} className="text-primary" /> Reset Password
             </button>
-            <button onClick={() => toast.success("PIN reset")} className="flex items-center gap-2 rounded-xl border border-border py-3 px-4 text-xs font-medium text-foreground hover:bg-secondary transition-colors">
+            <button onClick={async () => {
+              try { await api.admin.resetUserPin(selectedUser.user_id || selectedUser.id); toast.success("PIN reset"); } catch { toast.error("Failed"); }
+            }} className="flex items-center gap-2 rounded-xl border border-border py-3 px-4 text-xs font-medium text-foreground hover:bg-secondary transition-colors">
               <Lock size={14} className="text-primary" /> Reset PIN
             </button>
             <button onClick={async () => {
-              await supabase.from("profiles").update({ status: "suspended" }).eq("user_id", selectedUser.user_id);
-              toast.success("Account suspended");
+              try { await api.admin.updateUserStatus(selectedUser.user_id || selectedUser.id, "suspended"); queryClient.invalidateQueries({ queryKey: ["admin-users"] }); toast.success("Account suspended"); } catch { toast.error("Failed"); }
             }} className="flex items-center gap-2 rounded-xl border border-border py-3 px-4 text-xs font-medium text-warning hover:bg-warning/10 transition-colors">
               <AlertTriangle size={14} /> Suspend
             </button>
             <button onClick={async () => {
-              await supabase.from("profiles").update({ status: "frozen" }).eq("user_id", selectedUser.user_id);
-              toast.success("Account frozen");
+              try { await api.admin.updateUserStatus(selectedUser.user_id || selectedUser.id, "frozen"); queryClient.invalidateQueries({ queryKey: ["admin-users"] }); toast.success("Account frozen"); } catch { toast.error("Failed"); }
             }} className="flex items-center gap-2 rounded-xl border border-border py-3 px-4 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors">
               <AlertTriangle size={14} /> Freeze
             </button>
@@ -102,14 +99,14 @@ const AdminUsers = () => {
       </div>
       <p className="text-xs text-muted-foreground">{filtered.length} users found</p>
       <div className="space-y-2">
-        {filtered.map((u) => (
-          <button key={u.user_id} onClick={() => setSelectedUserId(u.user_id)} className="section-card w-full flex items-center gap-3 hover:bg-secondary/50 transition-colors text-left">
+        {filtered.map((u: any) => (
+          <button key={u.user_id || u.id} onClick={() => setSelectedUserId(u.user_id || u.id)} className="section-card w-full flex items-center gap-3 hover:bg-secondary/50 transition-colors text-left">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-              {u.first_name[0]}{u.last_name[0]}
+              {(u.first_name || "?")[0]}{(u.last_name || "?")[0]}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">{u.first_name} {u.last_name}</p>
-              <p className="text-[10px] text-muted-foreground">{u.walletNumber} • {u.email}</p>
+              <p className="text-[10px] text-muted-foreground">{u.wallet_number || ""} • {u.email}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${

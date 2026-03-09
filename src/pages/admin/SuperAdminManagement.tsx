@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { UserPlus, Shield, Trash2, Ban, ChevronRight, Edit, Loader2 } from "lucide-react";
+import { Shield, Trash2, Ban, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const roleColors: Record<string, string> = {
@@ -19,41 +19,26 @@ const SuperAdminManagement = () => {
   const { data: admins = [], isLoading } = useQuery({
     queryKey: ["admin-management"],
     queryFn: async () => {
-      // Get all admin/superadmin roles
-      const { data: roles } = await supabase.from("user_roles").select("*").in("role", ["admin", "superadmin"]);
-      if (!roles || roles.length === 0) return [];
-
-      const userIds = roles.map(r => r.user_id);
-      const { data: profiles } = await supabase.from("profiles").select("*").in("user_id", userIds);
-
-      return roles.map(r => {
-        const profile = (profiles || []).find(p => p.user_id === r.user_id);
-        return {
-          id: r.id,
-          user_id: r.user_id,
-          role: r.role,
-          name: profile ? `${profile.first_name} ${profile.last_name}` : "Unknown",
-          email: profile?.email || "",
-          status: profile?.status || "active",
-          createdAt: profile?.created_at || "",
-        };
-      });
+      return await api.admin.adminList();
     },
   });
 
   const handleRemoveAdmin = async (userId: string, name: string) => {
-    // Downgrade to user role
-    await supabase.from("user_roles").delete().eq("user_id", userId).in("role", ["admin"]);
-    queryClient.invalidateQueries({ queryKey: ["admin-management"] });
-    toast.success(`${name} removed from admin`);
-    setSelected(null);
+    try {
+      await api.admin.roles.remove(userId, "admin");
+      queryClient.invalidateQueries({ queryKey: ["admin-management"] });
+      toast.success(`${name} removed from admin`);
+      setSelected(null);
+    } catch { toast.error("Failed"); }
   };
 
   const handleToggleStatus = async (userId: string, currentStatus: string) => {
     const newStatus = currentStatus === "active" ? "suspended" : "active";
-    await supabase.from("profiles").update({ status: newStatus }).eq("user_id", userId);
-    queryClient.invalidateQueries({ queryKey: ["admin-management"] });
-    toast.success(`Account ${newStatus}`);
+    try {
+      await api.admin.updateUserStatus(userId, newStatus);
+      queryClient.invalidateQueries({ queryKey: ["admin-management"] });
+      toast.success(`Account ${newStatus}`);
+    } catch { toast.error("Failed"); }
   };
 
   if (!isSuperAdmin) {
@@ -75,7 +60,7 @@ const SuperAdminManagement = () => {
         <div className="section-card">
           <div className="flex items-center gap-4 mb-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-lg font-bold text-primary-foreground">
-              {selected.name.split(" ").map((n: string) => n[0]).join("")}
+              {(selected.name || "??").split(" ").map((n: string) => n[0]).join("")}
             </div>
             <div className="flex-1">
               <h2 className="text-lg font-bold text-foreground">{selected.name}</h2>
@@ -85,10 +70,9 @@ const SuperAdminManagement = () => {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="py-2"><p className="text-[10px] text-muted-foreground">Role</p><p className="text-sm font-medium text-foreground capitalize">{selected.role}</p></div>
-            <div className="py-2"><p className="text-[10px] text-muted-foreground">Created</p><p className="text-sm font-medium text-foreground">{new Date(selected.createdAt).toLocaleDateString()}</p></div>
+            <div className="py-2"><p className="text-[10px] text-muted-foreground">Created</p><p className="text-sm font-medium text-foreground">{selected.createdAt ? new Date(selected.createdAt).toLocaleDateString() : "—"}</p></div>
           </div>
         </div>
-
         <div className="section-card">
           <h3 className="text-sm font-semibold text-foreground mb-3">Actions</h3>
           <div className="grid grid-cols-2 gap-2">
@@ -110,18 +94,15 @@ const SuperAdminManagement = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{admins.length} administrator accounts</p>
-      </div>
-
+      <p className="text-xs text-muted-foreground">{admins.length} administrator accounts</p>
       {admins.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-8">No admin accounts found. Promote users from the Users page.</p>
+        <p className="text-xs text-muted-foreground text-center py-8">No admin accounts found.</p>
       ) : (
         <div className="space-y-2">
           {admins.map((admin: any) => (
             <button key={admin.id} onClick={() => setSelected(admin)} className="section-card w-full flex items-center gap-3 hover:bg-secondary/50 transition-colors text-left">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                {admin.name.split(" ").map((n: string) => n[0]).join("")}
+                {(admin.name || "??").split(" ").map((n: string) => n[0]).join("")}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground">{admin.name}</p>

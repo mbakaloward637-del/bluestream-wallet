@@ -1,55 +1,13 @@
 import { Users, Wallet, TrendingUp, TrendingDown, Clock, UserCheck, DollarSign, Loader2 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, LineChart, Line } from "recharts";
-import { supabase } from "@/integrations/supabase/client";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
+import { api } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
 
 const SuperAdminDashboard = () => {
   const { data: stats, isLoading } = useQuery({
     queryKey: ["superadmin-stats"],
     queryFn: async () => {
-      const [profiles, wallets, transactions, pendingKyc, pendingWithdrawals, recentLogs] = await Promise.all([
-        supabase.from("profiles").select("id", { count: "exact", head: true }),
-        supabase.from("wallets").select("balance"),
-        supabase.from("transactions").select("id, type, amount, fee, status, created_at, currency").order("created_at", { ascending: false }).limit(100),
-        supabase.from("profiles").select("id", { count: "exact", head: true }).eq("kyc_status", "pending"),
-        supabase.from("withdrawal_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
-        supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(8),
-      ]);
-
-      const txs = transactions.data || [];
-      const totalBalance = (wallets.data || []).reduce((s, w) => s + Number(w.balance), 0);
-      const totalDeposits = txs.filter(t => t.type === "deposit" && t.status === "completed").reduce((s, t) => s + Number(t.amount), 0);
-      const totalWithdrawals = txs.filter(t => t.type === "withdraw").reduce((s, t) => s + Number(t.amount), 0);
-      const totalFees = txs.filter(t => t.status === "completed").reduce((s, t) => s + Number(t.fee || 0), 0);
-      const pendingTxs = txs.filter(t => t.status === "pending").length;
-
-      // Build daily chart data from transactions
-      const dayMap: Record<string, { deposits: number; withdrawals: number; transfers: number; airtime: number }> = {};
-      const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      days.forEach(d => dayMap[d] = { deposits: 0, withdrawals: 0, transfers: 0, airtime: 0 });
-      txs.forEach(tx => {
-        const day = days[new Date(tx.created_at).getDay()];
-        if (tx.type === "deposit") dayMap[day].deposits += Number(tx.amount);
-        else if (tx.type === "withdraw") dayMap[day].withdrawals += Number(tx.amount);
-        else if (tx.type === "send") dayMap[day].transfers += Number(tx.amount);
-        else if (tx.type === "airtime") dayMap[day].airtime += Number(tx.amount);
-      });
-      const dailyData = days.map(d => ({ day: d, ...dayMap[d] }));
-
-      return {
-        totalUsers: profiles.count || 0,
-        activeWallets: wallets.data?.length || 0,
-        totalBalance,
-        totalDeposits,
-        totalWithdrawals,
-        totalFees,
-        pendingKyc: pendingKyc.count || 0,
-        pendingWithdrawals: pendingWithdrawals.count || 0,
-        pendingTxs,
-        recentLogs: recentLogs.data || [],
-        recentTxs: txs.slice(0, 10),
-        dailyData,
-      };
+      return await api.admin.dashboard();
     },
   });
 
@@ -114,11 +72,11 @@ const SuperAdminDashboard = () => {
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="section-card">
           <h3 className="text-sm font-semibold text-foreground mb-3">Latest Transactions</h3>
-          {(stats?.recentTxs || []).length === 0 ? (
+          {(stats?.recentTxs || stats?.recentTransactions || []).length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-4">No transactions yet</p>
           ) : (
             <div className="space-y-0">
-              {(stats?.recentTxs || []).map((tx: any) => (
+              {(stats?.recentTxs || stats?.recentTransactions || []).map((tx: any) => (
                 <div key={tx.id} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-foreground capitalize">{tx.type}</p>

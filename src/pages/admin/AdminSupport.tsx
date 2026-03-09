@@ -1,5 +1,5 @@
 import { MessageSquare, ArrowUpCircle, CheckCircle2, Clock, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -31,18 +31,16 @@ const AdminSupport = () => {
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ["admin-support-tickets"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("support_tickets")
-        .select("*, profiles:user_id(first_name, last_name, email)")
-        .order("created_at", { ascending: false });
-      return data || [];
+      return await api.admin.supportTickets();
     },
   });
 
-  const handleStatusUpdate = async (id: string, status: "open" | "in_progress" | "resolved" | "escalated") => {
-    await supabase.from("support_tickets").update({ status }).eq("id", id);
-    queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
-    toast.success(`Ticket status updated to ${status.replace("_", " ")}`);
+  const handleStatusUpdate = async (id: string, status: string) => {
+    try {
+      await api.admin.updateTicket(id, status);
+      queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
+      toast.success(`Ticket status updated to ${status.replace("_", " ")}`);
+    } catch { toast.error("Failed"); }
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
@@ -71,14 +69,14 @@ const AdminSupport = () => {
         ) : (
           <div className="space-y-3">
             {tickets.map((ticket: any) => {
-              const userName = ticket.profiles ? `${ticket.profiles.first_name} ${ticket.profiles.last_name}` : "Unknown";
+              const userName = ticket.user_name || "Unknown";
               return (
                 <div key={ticket.id} className="section-card">
                   <div className="flex items-start justify-between mb-2">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${priorityColors[ticket.priority] || ""}`}>{ticket.priority}</span>
-                        <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${statusColors[ticket.status] || ""}`}>{ticket.status.replace("_", " ")}</span>
+                        <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${statusColors[ticket.status] || ""}`}>{(ticket.status || "").replace("_", " ")}</span>
                       </div>
                       <p className="text-sm font-semibold text-foreground">{ticket.subject}</p>
                     </div>
@@ -86,24 +84,18 @@ const AdminSupport = () => {
                   </div>
                   <p className="text-xs text-muted-foreground mb-2">{ticket.description}</p>
                   <div className="flex items-center justify-between text-xs mb-3">
-                    <div>
-                      <span className="text-muted-foreground">User: </span>
-                      <span className="font-medium text-foreground">{userName}</span>
-                    </div>
+                    <div><span className="text-muted-foreground">User: </span><span className="font-medium text-foreground">{userName}</span></div>
                     <span className="text-[10px] px-2 py-0.5 rounded bg-secondary text-secondary-foreground">{categoryLabels[ticket.category] || ticket.category}</span>
                   </div>
                   {(ticket.status === "open" || ticket.status === "in_progress") && (
                     <div className="flex gap-2">
-                      <button onClick={() => handleStatusUpdate(ticket.id, "resolved")}
-                        className="flex items-center gap-1.5 rounded-xl border border-border py-2 px-3 text-xs font-medium text-success hover:bg-success/10 transition-colors">
+                      <button onClick={() => handleStatusUpdate(ticket.id, "resolved")} className="flex items-center gap-1.5 rounded-xl border border-border py-2 px-3 text-xs font-medium text-success hover:bg-success/10 transition-colors">
                         <CheckCircle2 size={12} /> Resolve
                       </button>
-                      <button onClick={() => handleStatusUpdate(ticket.id, "in_progress")}
-                        className="flex items-center gap-1.5 rounded-xl border border-border py-2 px-3 text-xs font-medium text-primary hover:bg-primary/10 transition-colors">
+                      <button onClick={() => handleStatusUpdate(ticket.id, "in_progress")} className="flex items-center gap-1.5 rounded-xl border border-border py-2 px-3 text-xs font-medium text-primary hover:bg-primary/10 transition-colors">
                         <MessageSquare size={12} /> In Progress
                       </button>
-                      <button onClick={() => handleStatusUpdate(ticket.id, "escalated")}
-                        className="flex items-center gap-1.5 rounded-xl border border-border py-2 px-3 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors">
+                      <button onClick={() => handleStatusUpdate(ticket.id, "escalated")} className="flex items-center gap-1.5 rounded-xl border border-border py-2 px-3 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors">
                         <ArrowUpCircle size={12} /> Escalate
                       </button>
                     </div>

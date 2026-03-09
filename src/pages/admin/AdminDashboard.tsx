@@ -1,29 +1,12 @@
 import { Users, Wallet, TrendingUp, TrendingDown, Clock, UserCheck, ArrowLeftRight, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
 
 const AdminDashboard = () => {
   const { data: stats, isLoading } = useQuery({
     queryKey: ["admin-stats"],
     queryFn: async () => {
-      const [profiles, wallets, transactions, pendingKyc, pendingWithdrawals] = await Promise.all([
-        supabase.from("profiles").select("id", { count: "exact", head: true }),
-        supabase.from("wallets").select("balance"),
-        supabase.from("transactions").select("id, type, amount, status, created_at").order("created_at", { ascending: false }).limit(10),
-        supabase.from("profiles").select("id", { count: "exact", head: true }).eq("kyc_status", "pending"),
-        supabase.from("withdrawal_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
-      ]);
-
-      const totalBalance = (wallets.data || []).reduce((s, w) => s + Number(w.balance), 0);
-
-      return {
-        totalUsers: profiles.count || 0,
-        activeWallets: wallets.data?.length || 0,
-        totalBalance,
-        pendingKyc: pendingKyc.count || 0,
-        pendingWithdrawals: pendingWithdrawals.count || 0,
-        recentTransactions: transactions.data || [],
-      };
+      return await api.admin.dashboard();
     },
   });
 

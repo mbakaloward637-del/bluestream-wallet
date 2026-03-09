@@ -1,24 +1,17 @@
-import { Smartphone, AlertTriangle, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Smartphone, Loader2 } from "lucide-react";
+import { api } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
 
 const AdminAirtime = () => {
   const { data: airtimeTxs = [], isLoading } = useQuery({
     queryKey: ["admin-airtime"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("transactions")
-        .select("*, profiles:sender_user_id(first_name, last_name)")
-        .eq("type", "airtime")
-        .order("created_at", { ascending: false })
-        .limit(100);
-      return data || [];
+      return await api.admin.airtimeTransactions();
     },
   });
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
 
-  // Build network stats from provider field
   const networkMap: Record<string, { count: number; volume: number }> = {};
   airtimeTxs.forEach((tx: any) => {
     const provider = tx.provider || "Unknown";
@@ -59,7 +52,7 @@ const AdminAirtime = () => {
           {airtimeTxs.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-8">No airtime transactions yet</p>
           ) : airtimeTxs.map((tx: any) => {
-            const senderName = tx.profiles ? `${tx.profiles.first_name} ${tx.profiles.last_name}` : "Unknown";
+            const senderName = tx.sender_name || "Unknown";
             return (
               <div key={tx.id} className="flex items-center justify-between p-3">
                 <div className="min-w-0">

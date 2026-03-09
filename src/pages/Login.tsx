@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -23,10 +23,12 @@ const Login = () => {
     }
   };
 
-  if (user && !authLoading) {
-    const target = isSuperAdmin ? "/admin/super-dashboard" : isAdmin ? "/admin/dashboard" : "/dashboard";
-    navigate(target, { replace: true });
-  }
+  useEffect(() => {
+    if (user && !authLoading) {
+      const target = isSuperAdmin ? "/admin/super-dashboard" : isAdmin ? "/admin/dashboard" : "/dashboard";
+      navigate(target, { replace: true });
+    }
+  }, [user, authLoading, isAdmin, isSuperAdmin, navigate]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-5 py-8">

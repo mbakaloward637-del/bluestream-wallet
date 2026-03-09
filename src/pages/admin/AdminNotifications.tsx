@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Send, Smartphone, Bell, MessageSquare, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
-import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 const AdminNotifications = () => {
@@ -10,22 +9,7 @@ const AdminNotifications = () => {
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [channels, setChannels] = useState<string[]>(["inapp"]);
-  const [audience, setAudience] = useState<"all" | "specific">("all");
   const [sending, setSending] = useState(false);
-
-  const { data: recentNotifs = [] } = useQuery({
-    queryKey: ["admin-sent-notifications"],
-    queryFn: async () => {
-      // Get notifications sent by admin (system-wide broadcasts)
-      const { data } = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("type", "announcement")
-        .order("created_at", { ascending: false })
-        .limit(20);
-      return data || [];
-    },
-  });
 
   const toggleChannel = (ch: string) => {
     setChannels(prev => prev.includes(ch) ? prev.filter(c => c !== ch) : [...prev, ch]);
@@ -34,46 +18,23 @@ const AdminNotifications = () => {
   const handleSend = async () => {
     if (!title || !message) { toast.error("Please fill in title and message"); return; }
     setSending(true);
-
     try {
       const results: string[] = [];
 
-      // Send in-app notifications
       if (channels.includes("inapp")) {
-        const { data: profiles } = await supabase.from("profiles").select("user_id");
-        if (profiles && profiles.length > 0) {
-          const notifications = profiles.map(p => ({
-            user_id: p.user_id,
-            title,
-            message,
-            type: "announcement",
-          }));
-          for (let i = 0; i < notifications.length; i += 100) {
-            const chunk = notifications.slice(i, i + 100);
-            await supabase.from("notifications").insert(chunk);
-          }
-          results.push(`In-App: ${profiles.length} users`);
-        }
+        await api.admin.sendBulkNotification({ title, message, type: "announcement", channels: ["inapp"] });
+        results.push("In-App: sent");
       }
 
-      // Send bulk SMS via edge function
       if (channels.includes("sms")) {
-        const { data: smsResult, error: smsError } = await supabase.functions.invoke("send-bulk-sms", {
-          body: { title, message },
-        });
-        if (smsError) {
-          toast.error(`SMS failed: ${smsError.message}`);
-        } else if (smsResult) {
-          const info = smsResult as { total_recipients: number; sent: number; failed: number; provider_configured: boolean };
-          if (!info.provider_configured) {
-            results.push(`SMS: ${info.sent} queued (provider not configured yet)`);
-          } else {
-            results.push(`SMS: ${info.sent} sent, ${info.failed} failed`);
-          }
+        try {
+          await api.admin.sendBulkSms({ message: `${title}: ${message}` });
+          results.push("SMS: sent");
+        } catch {
+          results.push("SMS: failed");
         }
       }
 
-      // Push placeholder
       if (channels.includes("push")) {
         results.push("Push: queued (provider pending)");
       }
@@ -122,25 +83,6 @@ const AdminNotifications = () => {
             {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Send Notification
           </button>
         </div>
-      </div>
-
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-3">Recent Announcements</h3>
-        {recentNotifs.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-8">No announcements sent yet</p>
-        ) : (
-          <div className="space-y-2">
-            {recentNotifs.map((n: any) => (
-              <div key={n.id} className="section-card">
-                <div className="flex items-start justify-between mb-1">
-                  <p className="text-sm font-semibold text-foreground">{n.title}</p>
-                  <p className="text-[10px] text-muted-foreground shrink-0">{new Date(n.created_at).toLocaleDateString()}</p>
-                </div>
-                <p className="text-xs text-muted-foreground">{n.message}</p>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

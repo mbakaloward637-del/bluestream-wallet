@@ -1,5 +1,5 @@
-import { ShieldAlert, AlertTriangle, Eye, CheckCircle2, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { ShieldAlert, CheckCircle2, Loader2 } from "lucide-react";
+import { api } from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -23,20 +23,18 @@ const AdminSecurity = () => {
   const { data: alerts = [], isLoading } = useQuery({
     queryKey: ["admin-security-alerts"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("security_alerts")
-        .select("*, profiles:user_id(first_name, last_name)")
-        .order("created_at", { ascending: false });
-      return data || [];
+      return await api.admin.securityAlerts();
     },
   });
 
   const activeAlerts = alerts.filter((a: any) => !a.resolved);
 
   const handleResolve = async (id: string) => {
-    await supabase.from("security_alerts").update({ resolved: true }).eq("id", id);
-    queryClient.invalidateQueries({ queryKey: ["admin-security-alerts"] });
-    toast.success("Alert resolved");
+    try {
+      await api.admin.resolveAlert(id);
+      queryClient.invalidateQueries({ queryKey: ["admin-security-alerts"] });
+      toast.success("Alert resolved");
+    } catch { toast.error("Failed"); }
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
@@ -66,7 +64,7 @@ const AdminSecurity = () => {
         ) : (
           <div className="space-y-2">
             {alerts.map((alert: any) => {
-              const userName = alert.profiles ? `${alert.profiles.first_name} ${alert.profiles.last_name}` : "System";
+              const userName = alert.user_name || "System";
               return (
                 <div key={alert.id} className={`section-card ${alert.resolved ? "opacity-60" : ""}`}>
                   <div className="flex items-start justify-between mb-2">
@@ -79,12 +77,10 @@ const AdminSecurity = () => {
                   <p className="text-xs text-foreground mb-1">{alert.description}</p>
                   <p className="text-[10px] text-muted-foreground mb-2">User: {userName}</p>
                   {!alert.resolved ? (
-                    <div className="flex gap-2">
-                      <button onClick={() => handleResolve(alert.id)}
-                        className="flex items-center gap-1.5 rounded-lg border border-border py-1.5 px-3 text-[10px] font-medium text-success hover:bg-success/10 transition-colors">
-                        <CheckCircle2 size={12} /> Resolve
-                      </button>
-                    </div>
+                    <button onClick={() => handleResolve(alert.id)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border py-1.5 px-3 text-[10px] font-medium text-success hover:bg-success/10 transition-colors">
+                      <CheckCircle2 size={12} /> Resolve
+                    </button>
                   ) : (
                     <p className="text-[10px] text-success font-medium">✓ Resolved</p>
                   )}

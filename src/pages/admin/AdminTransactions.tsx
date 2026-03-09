@@ -1,18 +1,12 @@
 import { useState } from "react";
 import { Search, Flag, ChevronRight, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
 type Filter = "all" | "deposit" | "send" | "withdraw" | "exchange" | "airtime";
@@ -34,37 +28,24 @@ const AdminTransactions = () => {
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ["admin-transactions"],
     queryFn: async () => {
-      const { data } = await supabase.from("transactions").select("*").order("created_at", { ascending: false }).limit(100);
-      return data || [];
+      return await api.admin.transactions({ limit: 100 });
     },
   });
 
-  const filtered = transactions.filter((tx) => {
+  const filtered = transactions.filter((tx: any) => {
     const matchesFilter = filter === "all" || tx.type === filter;
-    const matchesSearch = !search || tx.reference.toLowerCase().includes(search.toLowerCase()) || (tx.description || "").toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = !search || (tx.reference || "").toLowerCase().includes(search.toLowerCase()) || (tx.description || "").toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
-  const selected = transactions.find(t => t.id === selectedId);
+  const selected = transactions.find((t: any) => t.id === selectedId);
 
   const handleReverseTransaction = async () => {
     if (!selected || !user) return;
     setReversing(true);
     try {
-      const { data, error } = await supabase.rpc("reverse_transaction", {
-        p_transaction_id: selected.id,
-        p_admin_id: user.id,
-        p_reason: reverseReason.trim() || "Admin reversal",
-      });
-
-      if (error) throw error;
-      const result = data as any;
-
-      if (!result?.success) {
-        toast.error(result?.error || "Reversal failed");
-        return;
-      }
-
+      const result = await api.admin.reverseTransaction(selected.id, reverseReason.trim() || "Admin reversal");
+      if (!result?.success) { toast.error(result?.error || "Reversal failed"); return; }
       toast.success(`Transaction reversed! Ref: ${result.reversal_reference}`);
       setReverseDialogOpen(false);
       setReverseReason("");
@@ -105,72 +86,44 @@ const AdminTransactions = () => {
           <h3 className="text-sm font-semibold text-foreground mb-3">Actions</h3>
           <div className="flex flex-wrap gap-2">
             <button onClick={async () => {
-              await supabase.from("transactions").update({ status: "flagged" }).eq("id", selected.id);
-              queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
-              toast.info("Transaction flagged");
+              try { await api.admin.flagTransaction(selected.id); queryClient.invalidateQueries({ queryKey: ["admin-transactions"] }); toast.info("Transaction flagged"); } catch { toast.error("Failed"); }
             }} className="flex items-center gap-2 rounded-xl border border-border py-2.5 px-4 text-xs font-medium text-warning hover:bg-warning/10 transition-colors">
               <Flag size={14} /> Flag for Review
             </button>
-
             {canReverse && (
-              <button
-                onClick={() => setReverseDialogOpen(true)}
-                className="flex items-center gap-2 rounded-xl border border-destructive/30 py-2.5 px-4 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
-              >
+              <button onClick={() => setReverseDialogOpen(true)} className="flex items-center gap-2 rounded-xl border border-destructive/30 py-2.5 px-4 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors">
                 <RotateCcw size={14} /> Reverse Transaction
               </button>
             )}
           </div>
-
           {selected.status === "reversed" && (
             <div className="flex items-center gap-2 text-xs text-warning bg-warning/10 rounded-lg p-3">
-              <AlertTriangle size={14} />
-              <span>This transaction has been reversed.</span>
+              <AlertTriangle size={14} /><span>This transaction has been reversed.</span>
             </div>
           )}
         </div>
-
-        {/* Reverse Confirmation Dialog */}
         <AlertDialog open={reverseDialogOpen} onOpenChange={setReverseDialogOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2">
-                <RotateCcw size={18} className="text-destructive" />
-                Reverse Transaction
-              </AlertDialogTitle>
+              <AlertDialogTitle className="flex items-center gap-2"><RotateCcw size={18} className="text-destructive" />Reverse Transaction</AlertDialogTitle>
               <AlertDialogDescription asChild>
                 <div className="space-y-3">
-                  <p>
-                    This will reverse <strong>{selected.currency} {Number(selected.amount).toLocaleString()}</strong> (Ref: {selected.reference}).
-                  </p>
+                  <p>This will reverse <strong>{selected.currency} {Number(selected.amount).toLocaleString()}</strong> (Ref: {selected.reference}).</p>
                   <ul className="text-xs space-y-1 text-muted-foreground list-disc list-inside">
-                    <li>Debit receiver's wallet</li>
-                    <li>Credit sender's wallet (including fee refund)</li>
-                    <li>Mark original transaction as reversed</li>
-                    <li>Notify both parties</li>
+                    <li>Debit receiver's wallet</li><li>Credit sender's wallet (including fee refund)</li>
+                    <li>Mark original transaction as reversed</li><li>Notify both parties</li>
                   </ul>
                   <div>
                     <label className="label-text">Reason (optional)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Fraud reported, duplicate, customer request"
-                      value={reverseReason}
-                      onChange={(e) => setReverseReason(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="text" placeholder="e.g. Fraud reported, duplicate, customer request" value={reverseReason} onChange={(e) => setReverseReason(e.target.value)} className="input-field" />
                   </div>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={reversing}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleReverseTransaction}
-                disabled={reversing}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {reversing ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
-                Confirm Reversal
+              <AlertDialogAction onClick={handleReverseTransaction} disabled={reversing} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                {reversing ? <Loader2 size={14} className="animate-spin mr-2" /> : null}Confirm Reversal
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -197,7 +150,7 @@ const AdminTransactions = () => {
       </div>
       <p className="text-xs text-muted-foreground">{filtered.length} transactions</p>
       <div className="section-card p-0 divide-y divide-border">
-        {filtered.map((tx) => (
+        {filtered.map((tx: any) => (
           <button key={tx.id} onClick={() => setSelectedId(tx.id)} className="w-full flex items-center gap-3 p-3 hover:bg-secondary/50 transition-colors text-left">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">

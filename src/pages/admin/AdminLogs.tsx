@@ -1,13 +1,12 @@
 import { ClipboardList, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
 
 const AdminLogs = () => {
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ["admin-activity-logs"],
     queryFn: async () => {
-      const { data } = await supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(50);
-      return data || [];
+      return await api.admin.activityLogs();
     },
   });
 
@@ -26,7 +25,7 @@ const AdminLogs = () => {
         <p className="text-center text-sm text-muted-foreground py-12">No activity logs yet</p>
       ) : (
         <div className="section-card p-0 divide-y divide-border">
-          {logs.map((log) => (
+          {logs.map((log: any) => (
             <div key={log.id} className="p-3">
               <div className="flex items-start justify-between mb-1">
                 <p className="text-sm font-medium text-foreground">{log.action}</p>
