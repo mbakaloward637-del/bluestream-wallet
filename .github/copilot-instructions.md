@@ -11,7 +11,7 @@
 - Transaction references: `TRF` for transfers, `AIR` for airtime, `DEP` for deposits, `WDR` for withdrawals, `EXC` for exchange, `REV` for reversals, `MPD` for M-Pesa deposits, `MPW` for M-Pesa withdrawals, `STM` for statements.
 - API routes are prefixed with `/api/v1/` — see `routes/api.php`.
 - Controllers are in `app/Http/Controllers/Api/` — don't create controllers outside this namespace.
-- Multiple controllers exist in `WalletController.php` (Wallet, Notification, Profile, ExchangeRate, Fee) — keep this pattern or split carefully.
+- **Each controller is a separate file** — one class per file (PSR-4 autoloading).
 - **Never modify** the `composer.json` dependencies without asking.
 
 ## Production Domain & Architecture
@@ -20,6 +20,70 @@
 - **Backend API**: Laravel served from `public_html/api/` (symlink to `laravel/public/`)
 - **API Base URL**: `https://abanremit.com/api/v1`
 - **Same-domain setup** — no CORS subdomain issues, frontend and backend share `abanremit.com`
+
+## Laravel File Structure (REQUIRED)
+```
+php-backend/
+├── app/
+│   ├── Console/Kernel.php
+│   ├── Exceptions/Handler.php
+│   ├── Http/
+│   │   ├── Controllers/
+│   │   │   ├── Controller.php           ← Base controller
+│   │   │   └── Api/
+│   │   │       ├── AdminController.php
+│   │   │       ├── AirtimeController.php
+│   │   │       ├── AuthController.php
+│   │   │       ├── BulkNotificationController.php
+│   │   │       ├── ExchangeRateController.php
+│   │   │       ├── FeeController.php
+│   │   │       ├── MpesaController.php
+│   │   │       ├── NotificationController.php
+│   │   │       ├── ProfileController.php
+│   │   │       ├── StatementController.php
+│   │   │       ├── SupportController.php
+│   │   │       ├── TransactionController.php
+│   │   │       ├── WalletController.php
+│   │   │       └── WebhookController.php
+│   │   ├── Kernel.php
+│   │   └── Middleware/
+│   │       ├── AdminMiddleware.php
+│   │       └── SuperAdminMiddleware.php
+│   ├── Models/
+│   │   ├── User.php
+│   │   ├── Profile.php
+│   │   ├── Wallet.php
+│   │   ├── Transaction.php
+│   │   ├── WithdrawalRequest.php
+│   │   ├── Notification.php         ← uses `notifications_custom` table
+│   │   ├── UserRole.php
+│   │   └── OtherModels.php          ← ExchangeRate, FeeConfig, VirtualCard, etc.
+│   ├── Providers/RouteServiceProvider.php
+│   └── Services/SmsService.php
+├── bootstrap/app.php
+├── config/
+│   ├── app.php
+│   ├── auth.php
+│   ├── cors.php
+│   ├── database.php
+│   ├── filesystems.php
+│   ├── mail.php
+│   ├── queue.php
+│   └── services.php
+├── database/
+│   ├── migrations/
+│   └── seeders/DatabaseSeeder.php
+├── public/
+│   ├── index.php
+│   └── .htaccess
+├── routes/
+│   ├── api.php
+│   └── web.php
+├── artisan
+├── composer.json
+├── .env
+└── .env.example
+```
 
 ## Third-Party Providers (PRODUCTION)
 | Service | Provider | Config Key |
@@ -30,17 +94,6 @@
 | SMS | **TalkSasa** | `services.talksasa` |
 | Exchange Rates | **ExchangeRate-API** | `services.exchange_rate` |
 | Email | **SMTP** (mail.abanremit.com:465/SSL) | `config/mail.php` |
-
-## PHP Config Files
-- `config/app.php` — App name, timezone (Africa/Nairobi), key, cipher
-- `config/auth.php` — JWT guard for `api`, Eloquent provider
-- `config/services.php` — Paystack, M-Pesa, Instalipa, TalkSasa, ExchangeRate-API credentials
-- `config/cors.php` — CORS from `FRONTEND_URL` env (supports comma-separated origins)
-- `config/database.php` — MySQL connection (abancool_aban)
-- `config/mail.php` — SMTP via mail.abanremit.com
-- `config/queue.php` — Database queue driver
-- `app/Http/Kernel.php` — Middleware stack with `admin` and `superadmin` aliases
-- `app/Providers/RouteServiceProvider.php` — API route loading with 60 req/min rate limiting
 
 ## PHP Controllers Reference
 - `AuthController` — register, login, logout, password reset, change-password
@@ -53,15 +106,18 @@
 - `BulkNotificationController` — admin bulk notifications and SMS via **TalkSasa**
 - `AdminController` — dashboard, users, KYC, transactions, withdrawals, security, super admin config
 - `WalletController` — wallet info, PIN set/verify
-- `NotificationController`, `ProfileController`, `ExchangeRateController`, `FeeController` — in WalletController.php
-
-## Services
-- `app/Services/SmsService.php` — TalkSasa SMS wrapper (single + bulk send, phone formatting to 254XXXXXXXXX)
+- `NotificationController` — user notification list, mark as read
+- `ProfileController` — user profile CRUD, KYC document upload
+- `ExchangeRateController` — public exchange rates listing
+- `FeeController` — public fee config listing
 
 ## PHP Middleware
 - `AdminMiddleware` — checks `$user->isAdmin()` (admin OR superadmin)
 - `SuperAdminMiddleware` — checks `$user->isSuperAdmin()` (superadmin only)
-- Both are registered as route aliases in `Kernel.php`: `'admin'` and `'superadmin'`
+- Both registered as route aliases in `Kernel.php`: `'admin'` and `'superadmin'`
+
+## Services
+- `app/Services/SmsService.php` — TalkSasa SMS wrapper (single + bulk send, phone formatting to 254XXXXXXXXX)
 
 ## React Frontend (src/)
 - Built with **Vite + React 18 + TypeScript + Tailwind + shadcn/ui**.
@@ -69,17 +125,8 @@
 - Supabase client at `src/integrations/supabase/client.ts` is **auto-generated — never edit it**.
 - `src/integrations/supabase/types.ts` is **read-only — never edit it**.
 - The frontend API service for PHP is at `php-backend/frontend-api-service/api.ts`.
-- When switching to PHP backend, replace `supabase` calls with `apiClient` methods from `api.ts`.
+- When switching to PHP backend, copy `api.ts` to `src/services/api.ts` and replace `supabase` calls with `api` methods.
 - Frontend env: `VITE_API_BASE_URL=https://abanremit.com/api/v1`
-
-## Edge Functions (supabase/functions/)
-These are Supabase Edge Functions used while running on Lovable Cloud:
-- `set-wallet-pin` — Hashes and stores wallet PIN via SQL crypt
-- `process-airtime` — Airtime purchase placeholder
-- `process-mpesa` — M-Pesa STK Push / B2C placeholder
-- `process-paystack` — Paystack card payment placeholder
-- `send-transaction-sms` — Per-transaction SMS notifications
-- `send-bulk-sms` — Admin bulk SMS broadcast
 
 ## Common Pitfalls to Avoid
 - Don't use `auth.users` table directly — use the `profiles` table instead.
@@ -93,6 +140,7 @@ These are Supabase Edge Functions used while running on Lovable Cloud:
 - All foreign keys referencing `users` MUST use `uuid` type, NOT `foreignId()` (which creates bigint).
 - The Notification model uses `notifications_custom` table (`protected $table = 'notifications_custom'`).
 - `AdminMiddleware.php` and `SuperAdminMiddleware.php` are separate files — each contains ONE class only.
+- **Each API controller is a separate file** — never put multiple controller classes in one file.
 - SMS notifications are sent via `SmsService::send()` — never call TalkSasa API directly from controllers.
 
 ## Deployment (cPanel — Same Domain)
@@ -100,10 +148,10 @@ See `php-backend/DEPLOYMENT.md` for full step-by-step guide.
 
 1. Upload `php-backend/` to `/home/abancool/laravel/` (OUTSIDE public_html)
 2. Symlink: `ln -s /home/abancool/laravel/public /home/abancool/public_html/api`
-3. Create `.env` from `.env.example`, fill ALL credentials
-4. Run: `composer install --no-dev`, `php artisan key:generate`, `php artisan jwt:secret`, `php artisan migrate --seed`
+3. `.env` is pre-configured — just run `php artisan key:generate` and `php artisan jwt:secret`
+4. Run: `composer install --no-dev`, `php artisan migrate --seed`
 5. Build React: `npm run build`, upload `dist/` contents to `public_html/`
-6. Configure `.htaccess` in `public_html/` for SPA routing + `/api` pass-through
+6. Copy `deployment-files/public_html/.htaccess` to `public_html/.htaccess`
 7. Configure webhook URLs in Paystack dashboard + Safaricom Daraja portal
 8. Set up cron: `* * * * * cd /home/abancool/laravel && php artisan schedule:run`
 

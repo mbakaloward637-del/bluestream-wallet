@@ -1,13 +1,14 @@
-# Migration Guide: Supabase → PHP API
+# AbanRemit — Frontend Migration Guide (Supabase → PHP API)
 
-## Step-by-step instructions to switch the React frontend to use the PHP backend
+## Overview
 
-### 1. Set API URL
-Add to your `.env`:
-```
-VITE_API_URL=https://your-php-api-domain.com/api/v1
-```
+This guide explains how to switch the React frontend from Supabase to the PHP Laravel backend.
 
+## Step 1: Copy API Service
+
+Copy `php-backend/frontend-api-service/api.ts` to `src/services/api.ts` in the React project.
+
+## Step 2: Set Environment Variable
 ### 2. Copy the API service
 Copy `php-backend/frontend-api-service/api.ts` → `src/services/api.ts`
 
