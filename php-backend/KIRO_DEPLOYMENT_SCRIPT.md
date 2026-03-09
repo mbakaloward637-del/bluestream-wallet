@@ -1,12 +1,16 @@
+# Kiro AI Assistant Script — AbanRemit Production Deployment
 
+## How to Use
 
-## Kiro AI Assistant Script for AbanRemit Production Deployment
-
-Below is a complete instruction script you can paste into **Kiro** (Amazon's AI coding assistant) to guide it through your project's production deployment. Copy the entire block below.
+1. Open **Kiro** in VS Code
+2. Start a new chat session
+3. Copy everything inside the code block below and paste it into Kiro
+4. Kiro will walk you through each step sequentially
+5. Confirm each step before it moves to the next
 
 ---
 
-### Kiro Prompt Script
+## Paste This Into Kiro
 
 ```text
 You are acting as a senior DevOps and Laravel engineer for the AbanRemit fintech platform. This is a full-stack application with a React (Vite) frontend and a Laravel 10 PHP backend using JWT authentication and UUID primary keys.
@@ -134,16 +138,3 @@ Test these endpoints:
 
 Walk me through each task one at a time. After each task, ask me to confirm completion before moving to the next. If I encounter errors, help me debug using storage/logs/laravel.log output. Always prioritize data safety — never suggest dropping tables with existing data.
 ```
-
----
-
-### How to Use This
-
-1. Open **Kiro** in VS Code
-2. Start a new chat session
-3. Paste the entire script above
-4. Kiro will walk you through each step sequentially
-5. Confirm each step before it moves to the next
-
-The script covers the same deployment flow as your Copilot prompt but is structured specifically for Kiro's task-oriented workflow, with explicit rules to prevent common mistakes with your UUID-based schema and payment integrations.
-
