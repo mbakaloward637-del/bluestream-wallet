@@ -16,15 +16,3 @@ class AdminMiddleware
         return $next($request);
     }
 }
-
-class SuperAdminMiddleware
-{
-    public function handle(Request $request, Closure $next)
-    {
-        $user = $request->user();
-        if (!$user || !$user->isSuperAdmin()) {
-            return response()->json(['error' => 'Unauthorized. Super admin access required.'], 403);
-        }
-        return $next($request);
-    }
-}
