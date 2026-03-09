@@ -22,9 +22,25 @@
 - The frontend API service for PHP is at `php-backend/frontend-api-service/api.ts`.
 - When switching to PHP backend, replace `supabase` calls with `apiClient` methods from `api.ts`.
 
+## PHP Controllers Reference
+- `AuthController` — register, login, logout, password reset
+- `TransactionController` — transfer, deposit, withdraw, exchange, recipient lookup
+- `AirtimeController` — airtime purchase with Africa's Talking integration (Safaricom, Airtel, Telkom)
+- `MpesaController` — STK Push (C2B deposit) and B2C (withdrawal)
+- `WebhookController` — Paystack & M-Pesa callback handlers (no auth, signature-verified)
+- `StatementController` — CSV statement download (50 KES fee) and preview
+- `SupportController` — user-facing support ticket CRUD
+- `BulkNotificationController` — admin bulk notifications and SMS via Africa's Talking
+- `AdminController` — dashboard, users, KYC, transactions, withdrawals, security, super admin config
+- `WalletController` — wallet info, PIN set/verify
+- `NotificationController`, `ProfileController`, `ExchangeRateController`, `FeeController` — in WalletController.php
+
 ## Common Pitfalls to Avoid
 - Don't use `auth.users` table directly — use the `profiles` table instead.
 - Don't create `config.toml` files outside `supabase/config.toml`.
 - Don't add CHECK constraints with `now()` — use validation triggers instead.
 - Don't store roles on the `users` or `profiles` table.
 - Ensure all API responses follow the existing JSON structure (`{success, data}` or `{error}`).
+- Webhook routes MUST remain outside `auth:api` middleware — they use signature verification instead.
+- Statement download charges 50 KES — always verify wallet balance first.
+- M-Pesa amounts are integers (no decimals). Paystack amounts are in kobo (÷100).
