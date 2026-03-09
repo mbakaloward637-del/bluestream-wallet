@@ -104,7 +104,7 @@ const SendMoney = () => {
       if (error) throw error;
       const result = data as any;
       if (result?.found) {
-        setRecipientInfo({ name: result.name, wallet: result.wallet || "" });
+        setRecipientInfo({ name: result.name, wallet: result.wallet || "", userId: result.user_id || "", avatar: result.avatar_url });
       } else {
         setRecipientInfo(null);
         setErrors((prev) => [
