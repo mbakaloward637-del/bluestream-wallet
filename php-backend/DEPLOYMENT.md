@@ -1,68 +1,114 @@
-# AbanRemit PHP Backend — Deployment Guide
+# AbanRemit — cPanel Deployment Guide (Same Domain)
 
-## Prerequisites
-- PHP 8.1+ with extensions: `pdo_mysql`, `mbstring`, `openssl`, `json`, `curl`
-- Composer 2.x
-- MySQL 8.0+ or MariaDB 10.5+
-- cPanel, VPS, or any LAMP/LEMP hosting
+## Architecture: Frontend + Backend on `abanremit.com`
 
----
+```
+public_html/
+├── index.html          ← React app (Vite build)
+├── assets/             ← React JS/CSS bundles
+├── icon-192.png
+├── icon-512.png
+├── robots.txt
+├── .htaccess           ← Routes /api to Laravel, everything else to React
+└── api/                ← Symlink OR copy of Laravel's public/ folder
+    ├── index.php
+    └── .htaccess
 
-## 1. Server Setup
-
-### cPanel
-1. Create a subdomain for the API (e.g., `api.abanremit.com`)
-2. Point the document root to `public/` folder
-3. Create a MySQL database and user via cPanel → MySQL Databases
-
-### VPS (Ubuntu/Debian)
-```bash
-sudo apt update && sudo apt install php8.1 php8.1-mysql php8.1-mbstring php8.1-xml php8.1-curl composer nginx mysql-server
+/home/abancool/laravel/     ← Laravel app (OUTSIDE public_html)
+├── app/
+├── config/
+├── database/
+├── routes/
+├── storage/
+├── vendor/
+├── .env                    ← YOUR REAL CREDENTIALS HERE
+├── artisan
+└── composer.json
 ```
 
 ---
 
-## 2. Install Dependencies
+## Step 1: Upload Laravel Backend
+
+### Via File Manager or SSH:
 
 ```bash
-cd php-backend
+# Create Laravel directory OUTSIDE public_html
+mkdir -p /home/abancool/laravel
+
+# Upload the entire php-backend/ contents to /home/abancool/laravel/
+# You can zip the php-backend folder, upload via File Manager, and extract
+```
+
+### Install Dependencies (SSH):
+```bash
+cd /home/abancool/laravel
 composer install --no-dev --optimize-autoloader
 ```
 
+### If no SSH access (cPanel Terminal):
+Use cPanel → Terminal (if available) or contact hosting to run composer.
+
 ---
 
-## 3. Environment Configuration
+## Step 2: Configure Environment
 
 ```bash
+cd /home/abancool/laravel
 cp .env.example .env
 ```
 
-Fill in ALL values:
+**Edit `.env` with your REAL credentials:**
 
-| Variable | Description |
-|----------|-------------|
-| `APP_URL` | Your API domain (e.g., `https://api.abanremit.com`) |
-| `FRONTEND_URL` | React app URL for CORS (e.g., `https://app.abanremit.com`) |
-| `DB_*` | MySQL credentials |
-| `JWT_SECRET` | Auto-generated (step 4) |
-| `PAYSTACK_SECRET_KEY` | From Paystack dashboard → Settings → API Keys |
-| `PAYSTACK_PUBLIC_KEY` | Publishable key from Paystack |
-| `MPESA_CONSUMER_KEY` | From Safaricom Developer Portal → My Apps |
-| `MPESA_CONSUMER_SECRET` | Same as above |
-| `MPESA_SHORTCODE` | Your M-Pesa paybill/till number |
-| `MPESA_PASSKEY` | From Safaricom Daraja sandbox/production |
-| `MPESA_CALLBACK_URL` | `https://api.abanremit.com/api/v1/webhooks/mpesa/c2b` |
-| `MPESA_B2C_RESULT_URL` | `https://api.abanremit.com/api/v1/webhooks/mpesa/b2c` |
-| `MPESA_ENV` | `sandbox` for testing, `production` for live |
-| `AT_API_KEY` | Africa's Talking API key |
-| `AT_USERNAME` | Africa's Talking app username |
-| `AT_ENV` | `sandbox` or `production` |
+```env
+APP_NAME=AbanRemit
+APP_ENV=production
+APP_URL=https://abanremit.com
+APP_DEBUG=false
+
+DB_CONNECTION=mysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_DATABASE=abancool_aban
+DB_USERNAME=abancool_labo
+DB_PASSWORD=YOUR_DB_PASSWORD
+
+JWT_SECRET=   (generate in step 3)
+
+FRONTEND_URL=https://abanremit.com,https://www.abanremit.com
+
+MPESA_API_URL=https://api.safaricom.co.ke
+MPESA_CONSUMER_KEY=YOUR_KEY
+MPESA_CONSUMER_SECRET=YOUR_SECRET
+MPESA_SHORTCODE=000772
+MPESA_PASSKEY=YOUR_PASSKEY
+MPESA_SECURITY_CREDENTIAL=YOUR_CREDENTIAL
+MPESA_ENV=production
+
+PAYSTACK_PUBLIC_KEY=pk_live_YOUR_KEY
+PAYSTACK_SECRET_KEY=sk_live_YOUR_KEY
+
+INSTALIPA_CONSUMER_KEY=YOUR_KEY
+INSTALIPA_CONSUMER_SECRET=YOUR_SECRET
+
+TALKSASA_API_TOKEN=YOUR_TOKEN
+
+EXCHANGE_RATE_API_KEY=YOUR_KEY
+
+MAIL_HOST=mail.abanremit.com
+MAIL_PORT=465
+MAIL_USERNAME=support@abanremit.com
+MAIL_PASSWORD=YOUR_MAIL_PASSWORD
+MAIL_ENCRYPTION=ssl
+```
 
 ---
 
-## 4. Generate Keys & Migrate
+## Step 3: Generate Keys & Migrate
 
 ```bash
+cd /home/abancool/laravel
+
 php artisan key:generate
 php artisan jwt:secret
 php artisan migrate --seed
@@ -70,134 +116,205 @@ php artisan storage:link
 ```
 
 The seeder creates:
-- **Super Admin**: `admin@abanremit.com` / `Admin@123456` (change immediately!)
+- **Super Admin**: `admin@abanremit.com` / `Admin@123456` ⚠️ CHANGE IMMEDIATELY
 - Default exchange rates (KES ↔ USD, GBP, EUR)
-- Default fee config (1.5% transfer, KES 50 flat withdrawal)
+- Default fee config (1.5% transfer, KES 50 withdrawal)
 
 ---
 
-## 5. Permissions
+## Step 4: Set Permissions
 
 ```bash
-chmod -R 755 storage bootstrap/cache
-chown -R www-data:www-data storage bootstrap/cache
+chmod -R 755 /home/abancool/laravel/storage
+chmod -R 755 /home/abancool/laravel/bootstrap/cache
 ```
 
 ---
 
-## 6. Nginx Configuration (VPS only)
+## Step 5: Link Laravel to public_html/api/
 
-```nginx
-server {
-    listen 80;
-    server_name api.abanremit.com;
-    root /var/www/abanremit/public;
-    index index.php;
+### Option A: Symlink (Preferred — SSH required)
+```bash
+ln -s /home/abancool/laravel/public /home/abancool/public_html/api
+```
 
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
+### Option B: Copy + Edit index.php (No SSH)
+1. Create folder `public_html/api/`
+2. Copy ALL files from `laravel/public/` into `public_html/api/`
+3. Edit `public_html/api/index.php` — change the paths:
 
-    location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-
-    location ~ /\.(?!well-known).* {
-        deny all;
-    }
-}
+```php
+<?php
+// Change these two lines to point to the laravel directory:
+require __DIR__.'/../../laravel/vendor/autoload.php';
+$app = require_once __DIR__.'/../../laravel/bootstrap/app.php';
 ```
 
 ---
 
-## 7. Webhook URLs to Configure
+## Step 6: Configure .htaccess Files
 
-### Paystack
-Dashboard → Settings → Webhooks:
+### `public_html/.htaccess` (Root — serves React + routes /api)
+
+```apache
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # If requesting /api, let it pass through to the api/ folder
+    RewriteRule ^api(/.*)?$ api/index.php [QSA,L]
+
+    # If the requested file or directory exists, serve it
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Otherwise, serve React's index.html (SPA routing)
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Gzip compression
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json
+</IfModule>
+
+# Cache static assets
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+</IfModule>
 ```
-https://api.abanremit.com/api/v1/webhooks/paystack
+
+### `public_html/api/.htaccess` (Laravel)
+
+```apache
+<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    </IfModule>
+
+    RewriteEngine On
+
+    # Handle Authorization Header
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Redirect Trailing Slashes
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)/$ /$1 [L,R=301]
+
+    # Send Requests To Front Controller
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>
 ```
-
-### M-Pesa (Safaricom Daraja)
-Already configured via `.env` variables — callbacks auto-registered on STK Push/B2C requests.
-
-### Africa's Talking
-No incoming webhooks needed — outbound only (SMS/Airtime).
 
 ---
 
-## 8. React Frontend Deployment
+## Step 7: Build & Upload React Frontend
+
+On your **local machine** (or in Lovable):
 
 ```bash
-# In the React project root
-echo "VITE_API_URL=https://api.abanremit.com/api/v1" > .env.production
+# Set the API URL for production build
+echo "VITE_API_BASE_URL=https://abanremit.com/api/v1" > .env.production
+
 npm run build
 ```
 
-Deploy the `dist/` folder to your frontend domain.
+Upload the contents of the `dist/` folder to `public_html/`:
+- `index.html` → `public_html/index.html`
+- `assets/` → `public_html/assets/`
+- All other files (icons, robots.txt, etc.)
 
-Copy `php-backend/frontend-api-service/api.ts` → `src/services/api.ts` and follow `MIGRATION_GUIDE.md` to replace Supabase calls.
-
----
-
-## 9. Post-Deployment Verification
-
-| Check | Command / Action |
-|-------|-----------------|
-| API health | `curl https://api.abanremit.com` → `{"app":"AbanRemit API","version":"1.0.0","status":"running"}` |
-| Login | `POST /api/v1/auth/login` with admin credentials |
-| DB connection | `php artisan migrate:status` |
-| Storage link | Verify `public/storage` symlink exists |
-| CORS | Frontend can call API without blocked-by-CORS errors |
-| Webhooks | Test with Paystack/M-Pesa sandbox callbacks |
+⚠️ Do NOT overwrite the `api/` folder or `.htaccess` when uploading!
 
 ---
 
-## 10. Security Hardening
+## Step 8: Verify Deployment
+
+| Check | How |
+|-------|-----|
+| Frontend loads | Visit `https://abanremit.com` — should see login page |
+| API health | Visit `https://abanremit.com/api` — should see JSON health response |
+| API login | `POST https://abanremit.com/api/v1/auth/login` with admin credentials |
+| DB connected | `php artisan migrate:status` (SSH) |
+| CORS working | Frontend can call API without blocked-by-CORS errors |
+| M-Pesa callbacks | Test STK Push with sandbox first |
+
+---
+
+## Step 9: Configure Webhook URLs
+
+### Paystack Dashboard → Settings → Webhooks:
+```
+https://abanremit.com/api/v1/webhooks/paystack
+```
+
+### M-Pesa (Safaricom Daraja):
+Already configured in `.env`:
+- C2B Callback: `https://abanremit.com/api/v1/webhooks/mpesa/c2b`
+- B2C Result: `https://abanremit.com/api/v1/webhooks/mpesa/b2c`
+- Validation: `https://abanremit.com/api/v1/webhooks/mpesa/validation`
+
+### Instalipa → Settings → Webhooks:
+```
+https://abanremit.com/api/v1/webhooks/airtime
+```
+
+---
+
+## Step 10: Security Hardening
 
 - [ ] Change super admin password immediately after first login
-- [ ] Set `APP_DEBUG=false` in production
-- [ ] Enable HTTPS (SSL certificate via Let's Encrypt)
-- [ ] Set specific `FRONTEND_URL` instead of wildcard `*` in CORS
-- [ ] Enable MySQL slow query log for performance monitoring
-- [ ] Set up log rotation for `storage/logs/`
-- [ ] Configure fail2ban for SSH and API rate limiting
+- [ ] Ensure `APP_DEBUG=false` in `.env`
+- [ ] SSL certificate active (Let's Encrypt via cPanel)
+- [ ] Set specific `FRONTEND_URL` in `.env` (no wildcard `*`)
+- [ ] Remove default Laravel routes that expose app info
+- [ ] Set up cron for Laravel scheduler (if using queues):
+  ```
+  * * * * * cd /home/abancool/laravel && php artisan schedule:run >> /dev/null 2>&1
+  ```
+- [ ] Set up queue worker (if using database queue):
+  ```
+  cd /home/abancool/laravel && php artisan queue:work --daemon
+  ```
 
 ---
 
-## API Route Summary
+## Troubleshooting
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/auth/register` | No | User registration |
-| POST | `/auth/login` | No | JWT login |
-| POST | `/auth/logout` | Yes | Invalidate token |
-| GET | `/auth/me` | Yes | Current user data |
-| GET | `/wallet` | Yes | Wallet info |
-| POST | `/wallet/set-pin` | Yes | Set/change PIN |
-| GET | `/transactions` | Yes | List transactions |
-| POST | `/transactions/transfer` | Yes | Send money |
-| POST | `/transactions/deposit` | Yes | Deposit funds |
-| POST | `/transactions/withdraw` | Yes | Withdraw funds |
-| POST | `/transactions/exchange` | Yes | Currency exchange |
-| POST | `/airtime/purchase` | Yes | Buy airtime |
-| POST | `/mpesa/stk-push` | Yes | M-Pesa deposit |
-| POST | `/mpesa/b2c` | Yes | M-Pesa withdrawal |
-| POST | `/statements/download` | Yes | CSV statement (50 KES) |
-| GET | `/statements/preview` | Yes | Statement preview |
-| POST | `/webhooks/paystack` | No* | Paystack callback |
-| POST | `/webhooks/mpesa/c2b` | No* | M-Pesa C2B callback |
-| POST | `/webhooks/mpesa/b2c` | No* | M-Pesa B2C callback |
-| GET | `/admin/dashboard` | Admin | Admin stats |
-| GET | `/admin/users` | Admin | All users |
-| POST | `/admin/notifications/bulk` | Admin | Bulk notifications |
-| POST | `/admin/sms/bulk` | Admin | Bulk SMS |
-| GET | `/admin/exchange-rates` | Super | Exchange rates CRUD |
-| GET | `/admin/fees` | Super | Fee config CRUD |
-| POST | `/admin/roles` | Super | Assign roles |
+| Problem | Solution |
+|---------|----------|
+| 500 error on API | Check `storage/logs/laravel.log`, ensure permissions on `storage/` |
+| CORS errors | Verify `FRONTEND_URL` in `.env` matches your domain exactly |
+| JWT errors | Run `php artisan jwt:secret` and clear config cache |
+| M-Pesa callbacks not working | Ensure callback IPs are whitelisted, check `MPESA_CALLBACK_ALLOWED_IPS` |
+| React routes return 404 | Check `.htaccess` in `public_html/` has the SPA fallback rule |
+| API returns HTML instead of JSON | Ensure `public_html/api/.htaccess` has the Authorization header fix |
+| "Class not found" errors | Run `composer dump-autoload -o` in laravel directory |
 
-*Webhook routes use signature verification instead of JWT auth.
+---
 
-All authenticated routes require: `Authorization: Bearer <jwt_token>`
+## File Locations Summary
+
+| Component | Location |
+|-----------|----------|
+| Laravel App | `/home/abancool/laravel/` |
+| Laravel .env | `/home/abancool/laravel/.env` |
+| Laravel Logs | `/home/abancool/laravel/storage/logs/laravel.log` |
+| React Build | `/home/abancool/public_html/` |
+| API Endpoint | `/home/abancool/public_html/api/` → symlink to laravel/public |
+| Uploads | `/home/abancool/laravel/storage/app/public/` |
