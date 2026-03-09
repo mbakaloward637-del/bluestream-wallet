@@ -6,9 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Notification;
 use App\Models\Profile;
 use App\Models\ActivityLog;
+use App\Services\SmsService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class BulkNotificationController extends Controller
@@ -72,7 +71,7 @@ class BulkNotificationController extends Controller
 
     /**
      * POST /api/v1/admin/sms/bulk
-     * Send bulk SMS via Africa's Talking
+     * Send bulk SMS via TalkSasa
      */
     public function sendBulkSms(Request $request)
     {
@@ -83,10 +82,7 @@ class BulkNotificationController extends Controller
             'phone_numbers' => 'nullable|array',
         ]);
 
-        $atApiKey = config('services.africastalking.api_key');
-        $atUsername = config('services.africastalking.username');
-
-        if (!$atApiKey || !$atUsername) {
+        if (!config('services.talksasa.api_token')) {
             return response()->json(['error' => 'SMS provider not configured'], 503);
         }
 
@@ -105,36 +101,14 @@ class BulkNotificationController extends Controller
             return response()->json(['error' => 'No phone numbers found'], 400);
         }
 
-        $atBaseUrl = config('services.africastalking.env') === 'production'
-            ? 'https://api.africastalking.com'
-            : 'https://api.sandbox.africastalking.com';
-
-        // Send in batches of 100
+        // Send via TalkSasa
         $sent = 0;
         $failed = 0;
 
         foreach (array_chunk($phones, 100) as $batch) {
-            $to = implode(',', array_map(fn($p) => $this->formatPhone($p), $batch));
-
-            try {
-                $response = Http::withHeaders(['apiKey' => $atApiKey, 'Accept' => 'application/json'])
-                    ->asForm()
-                    ->post("{$atBaseUrl}/version1/messaging", [
-                        'username' => $atUsername,
-                        'to' => $to,
-                        'message' => $request->message,
-                    ]);
-
-                $data = $response->json();
-                $recipients = $data['SMSMessageData']['Recipients'] ?? [];
-                foreach ($recipients as $r) {
-                    if (($r['statusCode'] ?? 0) === 101) $sent++;
-                    else $failed++;
-                }
-            } catch (\Exception $e) {
-                Log::error('Bulk SMS batch error: ' . $e->getMessage());
-                $failed += count($batch);
-            }
+            $results = SmsService::sendBulk($batch, $request->message);
+            $sent += $results['sent'];
+            $failed += $results['failed'];
         }
 
         ActivityLog::create([
@@ -150,13 +124,5 @@ class BulkNotificationController extends Controller
             'failed' => $failed,
             'total' => count($phones),
         ]);
-    }
-
-    private function formatPhone(string $phone): string
-    {
-        $phone = preg_replace('/[^0-9]/', '', $phone);
-        if (str_starts_with($phone, '0')) $phone = '+254' . substr($phone, 1);
-        if (!str_starts_with($phone, '+')) $phone = '+' . $phone;
-        return $phone;
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Wallet;
 use App\Models\Transaction;
 use App\Models\Notification;
 use App\Models\Profile;
+use App\Services\SmsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -14,7 +15,6 @@ class WebhookController extends Controller
 {
     /**
      * POST /api/v1/webhooks/paystack
-     * Handles Paystack payment confirmation
      */
     public function paystack(Request $request)
     {
@@ -60,7 +60,6 @@ class WebhookController extends Controller
             // Credit wallet
             $wallet->increment('balance', $amount);
 
-            // Update or create transaction
             if ($existing) {
                 $existing->update(['status' => 'completed']);
             } else {
@@ -79,13 +78,18 @@ class WebhookController extends Controller
                 ]);
             }
 
-            // Notify user
             Notification::create([
                 'user_id' => $userId,
                 'title' => 'Deposit Successful',
                 'message' => "Your deposit of {$currency} {$amount} via card has been confirmed.",
                 'type' => 'transaction',
             ]);
+
+            // SMS notification
+            $profile = Profile::where('user_id', $userId)->first();
+            if ($profile && $profile->phone) {
+                SmsService::send($profile->phone, "Your AbanRemit wallet has been credited with {$currency} {$amount}. Ref: {$reference}");
+            }
 
             Log::info("Paystack deposit confirmed: {$reference}, {$currency} {$amount} for user {$userId}");
         }
@@ -95,20 +99,24 @@ class WebhookController extends Controller
 
     /**
      * POST /api/v1/webhooks/mpesa/c2b
-     * Handles M-Pesa C2B STK Push callback
      */
     public function mpesaC2B(Request $request)
     {
+        // Validate M-Pesa callback IP
+        $allowedIps = array_filter(explode(',', config('services.mpesa.callback_allowed_ips', '')));
+        if (!empty($allowedIps) && !in_array($request->ip(), $allowedIps)) {
+            Log::warning('M-Pesa C2B: unauthorized IP ' . $request->ip());
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
         $payload = $request->all();
         Log::info('M-Pesa C2B callback', $payload);
 
         $body = $payload['Body']['stkCallback'] ?? [];
         $resultCode = $body['ResultCode'] ?? -1;
-        $merchantRequestID = $body['MerchantRequestID'] ?? '';
         $checkoutRequestID = $body['CheckoutRequestID'] ?? '';
 
         if ($resultCode !== 0) {
-            // Payment failed or cancelled
             Log::info("M-Pesa STK Push failed/cancelled: ResultCode={$resultCode}");
             Transaction::where('metadata->checkout_request_id', $checkoutRequestID)
                 ->update(['status' => 'failed']);
@@ -126,56 +134,74 @@ class WebhookController extends Controller
         $mpesaRef = $callbackData['MpesaReceiptNumber'] ?? '';
         $phone = $callbackData['PhoneNumber'] ?? '';
 
-        // Find user by phone
-        $profile = Profile::where('phone', 'LIKE', '%' . substr($phone, -9))->first();
-        if (!$profile) {
-            Log::error("M-Pesa C2B: no user found for phone {$phone}");
-            return response()->json(['success' => true]);
+        // Find pending transaction by checkout_request_id first
+        $pendingTx = Transaction::where('metadata->checkout_request_id', $checkoutRequestID)
+            ->where('status', 'pending')
+            ->first();
+
+        if ($pendingTx) {
+            $wallet = Wallet::find($pendingTx->receiver_wallet_id);
+            if ($wallet) {
+                $wallet->increment('balance', $amount);
+                $pendingTx->update([
+                    'status' => 'completed',
+                    'metadata' => array_merge($pendingTx->metadata ?? [], ['mpesa_receipt' => $mpesaRef]),
+                ]);
+
+                Notification::create([
+                    'user_id' => $pendingTx->receiver_user_id,
+                    'title' => 'M-Pesa Deposit Received',
+                    'message' => "KES {$amount} deposited via M-Pesa. Ref: {$mpesaRef}",
+                    'type' => 'transaction',
+                ]);
+
+                // SMS notification
+                $profile = Profile::where('user_id', $pendingTx->receiver_user_id)->first();
+                if ($profile && $profile->phone) {
+                    SmsService::send($profile->phone, "KES {$amount} deposited to your AbanRemit wallet via M-Pesa. Ref: {$mpesaRef}");
+                }
+            }
+        } else {
+            // Fallback: find user by phone
+            $profile = Profile::where('phone', 'LIKE', '%' . substr($phone, -9))->first();
+            if ($profile) {
+                $wallet = Wallet::where('user_id', $profile->user_id)->first();
+                if ($wallet) {
+                    $wallet->increment('balance', $amount);
+                    $ref = 'MPD' . time() . str_pad(rand(0, 999), 3, '0', STR_PAD_LEFT);
+                    Transaction::create([
+                        'reference' => $ref,
+                        'type' => 'deposit',
+                        'receiver_user_id' => $profile->user_id,
+                        'receiver_wallet_id' => $wallet->id,
+                        'amount' => $amount,
+                        'currency' => 'KES',
+                        'description' => 'M-Pesa Deposit',
+                        'status' => 'completed',
+                        'method' => 'mpesa',
+                        'provider' => 'M-Pesa',
+                        'metadata' => ['mpesa_receipt' => $mpesaRef, 'phone' => $phone, 'checkout_request_id' => $checkoutRequestID],
+                    ]);
+
+                    Notification::create([
+                        'user_id' => $profile->user_id,
+                        'title' => 'M-Pesa Deposit Received',
+                        'message' => "KES {$amount} deposited via M-Pesa. Ref: {$mpesaRef}",
+                        'type' => 'transaction',
+                    ]);
+
+                    SmsService::send($profile->phone, "KES {$amount} deposited to your AbanRemit wallet via M-Pesa. Ref: {$mpesaRef}");
+                }
+            } else {
+                Log::error("M-Pesa C2B: no user found for phone {$phone}");
+            }
         }
 
-        $wallet = Wallet::where('user_id', $profile->user_id)->first();
-        if (!$wallet) {
-            Log::error("M-Pesa C2B: wallet not found for user {$profile->user_id}");
-            return response()->json(['success' => true]);
-        }
-
-        // Credit wallet
-        $wallet->increment('balance', $amount);
-
-        $ref = 'MPD' . time() . str_pad(rand(0, 999), 3, '0', STR_PAD_LEFT);
-        Transaction::create([
-            'reference' => $ref,
-            'type' => 'deposit',
-            'receiver_user_id' => $profile->user_id,
-            'receiver_wallet_id' => $wallet->id,
-            'amount' => $amount,
-            'currency' => 'KES',
-            'description' => 'M-Pesa Deposit',
-            'status' => 'completed',
-            'method' => 'mpesa',
-            'provider' => 'M-Pesa',
-            'metadata' => [
-                'mpesa_receipt' => $mpesaRef,
-                'phone' => $phone,
-                'checkout_request_id' => $checkoutRequestID,
-                'merchant_request_id' => $merchantRequestID,
-            ],
-        ]);
-
-        Notification::create([
-            'user_id' => $profile->user_id,
-            'title' => 'M-Pesa Deposit Received',
-            'message' => "KES {$amount} deposited via M-Pesa. Ref: {$mpesaRef}",
-            'type' => 'transaction',
-        ]);
-
-        Log::info("M-Pesa deposit confirmed: {$mpesaRef}, KES {$amount} for user {$profile->user_id}");
         return response()->json(['success' => true]);
     }
 
     /**
      * POST /api/v1/webhooks/mpesa/b2c
-     * Handles M-Pesa B2C (withdrawal) result callback
      */
     public function mpesaB2C(Request $request)
     {
@@ -187,7 +213,6 @@ class WebhookController extends Controller
         $conversationID = $result['ConversationID'] ?? '';
         $originatorConversationID = $result['OriginatorConversationID'] ?? '';
 
-        // Find the pending withdrawal transaction
         $tx = Transaction::where('metadata->conversation_id', $conversationID)
             ->orWhere('metadata->originator_conversation_id', $originatorConversationID)
             ->where('type', 'withdraw')
@@ -199,8 +224,9 @@ class WebhookController extends Controller
             return response()->json(['success' => true]);
         }
 
+        $profile = Profile::where('user_id', $tx->sender_user_id)->first();
+
         if ($resultCode === 0) {
-            // Success
             $tx->update(['status' => 'completed']);
             \App\Models\WithdrawalRequest::where('user_id', $tx->sender_user_id)
                 ->where('status', 'processing')
@@ -214,8 +240,11 @@ class WebhookController extends Controller
                 'message' => "KES {$tx->amount} sent to your M-Pesa. Ref: {$tx->reference}",
                 'type' => 'transaction',
             ]);
+
+            if ($profile && $profile->phone) {
+                SmsService::send($profile->phone, "KES {$tx->amount} has been sent to your M-Pesa. Ref: {$tx->reference}");
+            }
         } else {
-            // Failed — refund balance
             $tx->update(['status' => 'failed']);
             $wallet = Wallet::find($tx->sender_wallet_id);
             if ($wallet) {
@@ -228,6 +257,59 @@ class WebhookController extends Controller
                 'message' => "Your withdrawal of KES {$tx->amount} failed. Amount refunded to wallet.",
                 'type' => 'transaction',
             ]);
+
+            if ($profile && $profile->phone) {
+                SmsService::send($profile->phone, "Your M-Pesa withdrawal of KES {$tx->amount} failed. Amount has been refunded. Ref: {$tx->reference}");
+            }
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * POST /api/v1/webhooks/mpesa/validation
+     * M-Pesa validation URL (accepts all payments)
+     */
+    public function mpesaValidation(Request $request)
+    {
+        Log::info('M-Pesa validation request', $request->all());
+        return response()->json([
+            'ResultCode' => 0,
+            'ResultDesc' => 'Accepted',
+        ]);
+    }
+
+    /**
+     * POST /api/v1/webhooks/airtime
+     * Instalipa airtime callback
+     */
+    public function airtimeCallback(Request $request)
+    {
+        $payload = $request->all();
+        Log::info('Instalipa airtime callback', $payload);
+
+        $reference = $payload['reference'] ?? '';
+        $status = $payload['status'] ?? '';
+
+        if ($reference) {
+            $tx = Transaction::where('reference', $reference)->where('type', 'airtime')->first();
+            if ($tx) {
+                if ($status === 'success' || $status === 'completed') {
+                    $tx->update(['status' => 'completed']);
+                } elseif ($status === 'failed') {
+                    $tx->update(['status' => 'failed']);
+                    // Refund
+                    $wallet = Wallet::find($tx->sender_wallet_id);
+                    if ($wallet) $wallet->increment('balance', $tx->amount + $tx->fee);
+
+                    Notification::create([
+                        'user_id' => $tx->sender_user_id,
+                        'title' => 'Airtime Failed',
+                        'message' => "Airtime purchase failed. KES {$tx->amount} refunded to wallet.",
+                        'type' => 'transaction',
+                    ]);
+                }
+            }
         }
 
         return response()->json(['success' => true]);

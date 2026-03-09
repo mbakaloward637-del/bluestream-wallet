@@ -7,15 +7,17 @@ use App\Models\Wallet;
 use App\Models\Transaction;
 use App\Models\Notification;
 use App\Models\FeeConfig;
+use App\Services\SmsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class AirtimeController extends Controller
 {
     /**
      * POST /api/v1/airtime/purchase
-     * Purchases airtime for Safaricom, Airtel, or Telkom
+     * Purchases airtime via Instalipa API
      */
     public function purchase(Request $request)
     {
@@ -45,101 +47,119 @@ class AirtimeController extends Controller
             return response()->json(['success' => false, 'error' => 'Insufficient balance'], 400);
         }
 
-        $wallet->decrement('balance', $totalDebit);
         $ref = 'AIR' . time() . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+        $phone = $this->formatPhone($request->phone);
 
-        // Call Africa's Talking API if configured
-        $providerStatus = 'completed';
-        $providerResponse = null;
+        return DB::transaction(function () use ($user, $wallet, $request, $amount, $fee, $totalDebit, $ref, $phone) {
+            $wallet->decrement('balance', $totalDebit);
 
-        $atApiKey = config('services.africastalking.api_key');
-        $atUsername = config('services.africastalking.username');
+            $providerStatus = 'pending';
+            $providerResponse = null;
 
-        if ($atApiKey && $atUsername) {
-            try {
-                $atBaseUrl = config('services.africastalking.env') === 'production'
-                    ? 'https://api.africastalking.com'
-                    : 'https://api.sandbox.africastalking.com';
+            $consumerKey = config('services.instalipa.consumer_key');
+            $consumerSecret = config('services.instalipa.consumer_secret');
+            $apiUrl = config('services.instalipa.api_url');
 
-                $response = Http::withHeaders([
-                    'apiKey' => $atApiKey,
-                    'Accept' => 'application/json',
-                ])->asForm()->post("{$atBaseUrl}/version1/airtime/send", [
-                    'username' => $atUsername,
-                    'recipients' => json_encode([[
-                        'phoneNumber' => $this->formatPhone($request->phone),
-                        'currencyCode' => 'KES',
-                        'amount' => $amount,
-                    ]]),
-                ]);
+            if ($consumerKey && $consumerSecret && $apiUrl) {
+                try {
+                    // Get Instalipa access token
+                    $tokenResponse = Http::withBasicAuth($consumerKey, $consumerSecret)
+                        ->timeout(15)
+                        ->post("{$apiUrl}/oauth/token", [
+                            'grant_type' => 'client_credentials',
+                        ]);
 
-                $providerResponse = $response->json();
-                $entries = $providerResponse['responses'] ?? [];
-                $entry = $entries[0] ?? [];
+                    $accessToken = $tokenResponse->json('access_token');
 
-                if (($entry['status'] ?? '') !== 'Sent') {
+                    if (!$accessToken) {
+                        throw new \Exception('Failed to get Instalipa access token');
+                    }
+
+                    // Purchase airtime
+                    $response = Http::withToken($accessToken)
+                        ->timeout(30)
+                        ->post("{$apiUrl}/airtime/purchase", [
+                            'phone_number' => $phone,
+                            'amount' => $amount,
+                            'reference' => $ref,
+                            'callback_url' => config('services.instalipa.callback_url'),
+                        ]);
+
+                    $providerResponse = $response->json();
+
+                    if ($response->successful() && ($providerResponse['status'] ?? '') === 'success') {
+                        $providerStatus = 'completed';
+                    } else {
+                        $providerStatus = 'failed';
+                        $wallet->increment('balance', $totalDebit);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Instalipa airtime error: ' . $e->getMessage());
                     $providerStatus = 'failed';
-                    // Refund on failure
                     $wallet->increment('balance', $totalDebit);
                 }
-            } catch (\Exception $e) {
-                Log::error('Africa\'s Talking airtime error: ' . $e->getMessage());
-                $providerStatus = 'failed';
-                $wallet->increment('balance', $totalDebit);
+            } else {
+                // No provider configured — mark as completed (manual fulfillment)
+                $providerStatus = 'completed';
+                Log::warning('Instalipa not configured — airtime marked completed without provider call');
             }
-        }
 
-        // Create transaction record
-        Transaction::create([
-            'reference' => $ref,
-            'type' => 'airtime',
-            'sender_user_id' => $user->id,
-            'sender_wallet_id' => $wallet->id,
-            'amount' => $amount,
-            'fee' => $fee,
-            'currency' => $wallet->currency,
-            'description' => "{$request->network} airtime to {$request->phone}",
-            'status' => $providerStatus,
-            'provider' => $request->network,
-            'metadata' => [
-                'phone' => $request->phone,
-                'network' => $request->network,
-                'provider_response' => $providerResponse,
-            ],
-        ]);
-
-        // Notify user
-        Notification::create([
-            'user_id' => $user->id,
-            'title' => $providerStatus === 'completed' ? 'Airtime Sent' : 'Airtime Failed',
-            'message' => $providerStatus === 'completed'
-                ? "KES {$amount} {$request->network} airtime sent to {$request->phone}"
-                : "Failed to send airtime. Amount refunded to wallet.",
-            'type' => 'transaction',
-        ]);
-
-        if ($providerStatus === 'failed') {
-            return response()->json([
-                'success' => false,
-                'error' => 'Airtime purchase failed. Amount refunded.',
+            // Create transaction record
+            Transaction::create([
                 'reference' => $ref,
-            ], 400);
-        }
+                'type' => 'airtime',
+                'sender_user_id' => $user->id,
+                'sender_wallet_id' => $wallet->id,
+                'amount' => $amount,
+                'fee' => $fee,
+                'currency' => $wallet->currency,
+                'description' => "{$request->network} airtime to {$request->phone}",
+                'status' => $providerStatus,
+                'provider' => 'Instalipa',
+                'metadata' => [
+                    'phone' => $request->phone,
+                    'network' => $request->network,
+                    'provider_response' => $providerResponse,
+                ],
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'reference' => $ref,
-            'amount' => $amount,
-            'fee' => $fee,
-            'network' => $request->network,
-            'phone' => $request->phone,
-            'new_balance' => $wallet->fresh()->balance,
-        ]);
+            // Notify user
+            Notification::create([
+                'user_id' => $user->id,
+                'title' => $providerStatus === 'completed' ? 'Airtime Sent' : 'Airtime Failed',
+                'message' => $providerStatus === 'completed'
+                    ? "KES {$amount} {$request->network} airtime sent to {$request->phone}"
+                    : "Failed to send airtime. Amount refunded to wallet.",
+                'type' => 'transaction',
+            ]);
+
+            // Send SMS confirmation
+            if ($providerStatus === 'completed') {
+                SmsService::send($request->phone, "You have received KES {$amount} airtime from AbanRemit. Ref: {$ref}");
+            }
+
+            if ($providerStatus === 'failed') {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Airtime purchase failed. Amount refunded.',
+                    'reference' => $ref,
+                ], 400);
+            }
+
+            return response()->json([
+                'success' => true,
+                'reference' => $ref,
+                'amount' => $amount,
+                'fee' => $fee,
+                'network' => $request->network,
+                'phone' => $request->phone,
+                'new_balance' => $wallet->fresh()->balance,
+            ]);
+        });
     }
 
     /**
      * GET /api/v1/airtime/networks
-     * Returns supported airtime networks
      */
     public function networks()
     {
@@ -153,8 +173,9 @@ class AirtimeController extends Controller
     private function formatPhone(string $phone): string
     {
         $phone = preg_replace('/[^0-9]/', '', $phone);
-        if (str_starts_with($phone, '0')) $phone = '+254' . substr($phone, 1);
-        if (!str_starts_with($phone, '+')) $phone = '+' . $phone;
+        if (str_starts_with($phone, '0')) $phone = '254' . substr($phone, 1);
+        if (str_starts_with($phone, '+')) $phone = substr($phone, 1);
+        if (!str_starts_with($phone, '254')) $phone = '254' . $phone;
         return $phone;
     }
 }

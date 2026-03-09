@@ -10,7 +10,7 @@
  *   const transactions = await api.transactions.list();
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://your-api-domain.com/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://abanremit.com/api/v1';
 
 class ApiClient {
   private token: string | null = null;

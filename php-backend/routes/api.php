@@ -37,11 +37,13 @@ Route::prefix('v1')->group(function () {
     Route::get('fees', [FeeController::class, 'index']);
     Route::get('airtime/networks', [AirtimeController::class, 'networks']);
 
-    // ─── Webhooks (no auth — verified by signature) ───
+    // ─── Webhooks (no auth — verified by signature/IP) ───
     Route::prefix('webhooks')->group(function () {
         Route::post('paystack', [WebhookController::class, 'paystack']);
         Route::post('mpesa/c2b', [WebhookController::class, 'mpesaC2B']);
         Route::post('mpesa/b2c', [WebhookController::class, 'mpesaB2C']);
+        Route::post('mpesa/validation', [WebhookController::class, 'mpesaValidation']);
+        Route::post('airtime', [WebhookController::class, 'airtimeCallback']);
     });
 
     // ─── Authenticated Routes ───
@@ -63,7 +65,7 @@ Route::prefix('v1')->group(function () {
         Route::post('transactions/deposit', [TransactionController::class, 'deposit']);
         Route::post('transactions/withdraw', [TransactionController::class, 'withdraw']);
 
-        // Airtime (dedicated controller with Africa's Talking integration)
+        // Airtime (Instalipa)
         Route::post('airtime/purchase', [AirtimeController::class, 'purchase']);
 
         // Exchange
@@ -134,31 +136,25 @@ Route::prefix('v1')->group(function () {
 
             // ─── Super Admin Only ───
             Route::middleware(\App\Http\Middleware\SuperAdminMiddleware::class)->group(function () {
-                // Exchange Rates
                 Route::get('exchange-rates', [AdminController::class, 'getExchangeRates']);
                 Route::post('exchange-rates', [AdminController::class, 'createExchangeRate']);
                 Route::put('exchange-rates/{id}', [AdminController::class, 'updateExchangeRate']);
                 Route::delete('exchange-rates/{id}', [AdminController::class, 'deleteExchangeRate']);
 
-                // Fees
                 Route::get('fees', [AdminController::class, 'getFees']);
                 Route::post('fees', [AdminController::class, 'createFee']);
                 Route::put('fees/{id}', [AdminController::class, 'updateFee']);
 
-                // Payment Gateways
                 Route::get('payment-gateways', [AdminController::class, 'getPaymentGateways']);
                 Route::put('payment-gateways/{id}', [AdminController::class, 'updatePaymentGateway']);
 
-                // Platform Config
                 Route::get('platform-config', [AdminController::class, 'getConfig']);
                 Route::put('platform-config', [AdminController::class, 'updateConfig']);
 
-                // Roles
                 Route::get('roles/{userId}', [AdminController::class, 'getRoles']);
                 Route::post('roles', [AdminController::class, 'assignRole']);
                 Route::delete('roles/{id}', [AdminController::class, 'removeRole']);
 
-                // Audit Logs (full)
                 Route::get('audit-logs', [AdminController::class, 'activityLogs']);
             });
         });

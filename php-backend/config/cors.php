@@ -12,7 +12,9 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [env('FRONTEND_URL', '*')],
+    'allowed_origins' => array_filter(
+        array_map('trim', explode(',', env('FRONTEND_URL', 'https://abanremit.com')))
+    ),
 
     'allowed_origins_patterns' => [],
 
@@ -20,8 +22,8 @@ return [
 
     'exposed_headers' => ['Content-Disposition'],
 
-    'max_age' => 0,
+    'max_age' => 86400,
 
-    'supports_credentials' => false,
+    'supports_credentials' => true,
 
 ];

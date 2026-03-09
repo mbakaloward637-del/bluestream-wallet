@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Wallet;
 use App\Models\Transaction;
+use App\Services\SmsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -37,7 +38,7 @@ class MpesaController extends Controller
         $passkey = config('services.mpesa.passkey');
         $timestamp = now()->format('YmdHis');
         $password = base64_encode($shortcode . $passkey . $timestamp);
-        $callbackUrl = config('services.mpesa.callback_url', url('/api/v1/webhooks/mpesa/c2b'));
+        $callbackUrl = config('services.mpesa.callback_url');
 
         $ref = 'MPD' . time() . str_pad(rand(0, 999), 3, '0', STR_PAD_LEFT);
 
@@ -62,7 +63,6 @@ class MpesaController extends Controller
             $result = $response->json();
 
             if (($result['ResponseCode'] ?? '') === '0') {
-                // Create pending transaction
                 Transaction::create([
                     'reference' => $ref,
                     'type' => 'deposit',
@@ -141,8 +141,8 @@ class MpesaController extends Controller
                     'PartyA' => config('services.mpesa.shortcode'),
                     'PartyB' => $phone,
                     'Remarks' => 'Wallet Withdrawal',
-                    'QueueTimeOutURL' => config('services.mpesa.b2c_timeout_url', url('/api/v1/webhooks/mpesa/b2c')),
-                    'ResultURL' => config('services.mpesa.b2c_result_url', url('/api/v1/webhooks/mpesa/b2c')),
+                    'QueueTimeOutURL' => config('services.mpesa.b2c_timeout_url'),
+                    'ResultURL' => config('services.mpesa.b2c_result_url'),
                     'Occasion' => 'Withdrawal',
                 ]
             );
@@ -174,7 +174,6 @@ class MpesaController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            // Refund on API failure
             $wallet->increment('balance', $amount);
             Log::error('M-Pesa B2C exception: ' . $e->getMessage());
             return response()->json(['success' => false, 'error' => 'M-Pesa service error'], 500);
