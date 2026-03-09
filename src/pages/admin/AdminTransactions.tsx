@@ -1,8 +1,19 @@
 import { useState } from "react";
-import { Search, Flag, ChevronRight, Loader2 } from "lucide-react";
+import { Search, Flag, ChevronRight, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Filter = "all" | "deposit" | "send" | "withdraw" | "exchange" | "airtime";
 const filters: { id: Filter; label: string }[] = [
@@ -11,9 +22,14 @@ const filters: { id: Filter; label: string }[] = [
 ];
 
 const AdminTransactions = () => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reversing, setReversing] = useState(false);
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ["admin-transactions"],
@@ -30,6 +46,37 @@ const AdminTransactions = () => {
   });
 
   const selected = transactions.find(t => t.id === selectedId);
+
+  const handleReverseTransaction = async () => {
+    if (!selected || !user) return;
+    setReversing(true);
+    try {
+      const { data, error } = await supabase.rpc("reverse_transaction", {
+        p_transaction_id: selected.id,
+        p_admin_id: user.id,
+        p_reason: reverseReason.trim() || "Admin reversal",
+      });
+
+      if (error) throw error;
+      const result = data as any;
+
+      if (!result?.success) {
+        toast.error(result?.error || "Reversal failed");
+        return;
+      }
+
+      toast.success(`Transaction reversed! Ref: ${result.reversal_reference}`);
+      setReverseDialogOpen(false);
+      setReverseReason("");
+      queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
+    } catch (err: any) {
+      toast.error(err.message || "Reversal failed");
+    } finally {
+      setReversing(false);
+    }
+  };
+
+  const canReverse = selected?.type === "send" && selected?.status === "completed";
 
   if (selected) {
     return (
@@ -49,20 +96,85 @@ const AdminTransactions = () => {
             ].map((row) => (
               <div key={row.label} className="flex justify-between text-sm border-b border-border pb-2 last:border-0">
                 <span className="text-muted-foreground">{row.label}</span>
-                <span className="font-medium text-foreground capitalize">{row.value}</span>
+                <span className={`font-medium capitalize ${row.label === "Status" && selected.status === "reversed" ? "text-warning" : "text-foreground"}`}>{row.value}</span>
               </div>
             ))}
           </div>
         </div>
-        <div className="section-card">
+        <div className="section-card space-y-3">
           <h3 className="text-sm font-semibold text-foreground mb-3">Actions</h3>
-          <button onClick={async () => {
-            await supabase.from("transactions").update({ status: "flagged" }).eq("id", selected.id);
-            toast.info("Transaction flagged");
-          }} className="flex items-center gap-2 rounded-xl border border-border py-2.5 px-4 text-xs font-medium text-warning hover:bg-warning/10 transition-colors">
-            <Flag size={14} /> Flag for Review
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={async () => {
+              await supabase.from("transactions").update({ status: "flagged" }).eq("id", selected.id);
+              queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
+              toast.info("Transaction flagged");
+            }} className="flex items-center gap-2 rounded-xl border border-border py-2.5 px-4 text-xs font-medium text-warning hover:bg-warning/10 transition-colors">
+              <Flag size={14} /> Flag for Review
+            </button>
+
+            {canReverse && (
+              <button
+                onClick={() => setReverseDialogOpen(true)}
+                className="flex items-center gap-2 rounded-xl border border-destructive/30 py-2.5 px-4 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <RotateCcw size={14} /> Reverse Transaction
+              </button>
+            )}
+          </div>
+
+          {selected.status === "reversed" && (
+            <div className="flex items-center gap-2 text-xs text-warning bg-warning/10 rounded-lg p-3">
+              <AlertTriangle size={14} />
+              <span>This transaction has been reversed.</span>
+            </div>
+          )}
         </div>
+
+        {/* Reverse Confirmation Dialog */}
+        <AlertDialog open={reverseDialogOpen} onOpenChange={setReverseDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <RotateCcw size={18} className="text-destructive" />
+                Reverse Transaction
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-3">
+                  <p>
+                    This will reverse <strong>{selected.currency} {Number(selected.amount).toLocaleString()}</strong> (Ref: {selected.reference}).
+                  </p>
+                  <ul className="text-xs space-y-1 text-muted-foreground list-disc list-inside">
+                    <li>Debit receiver's wallet</li>
+                    <li>Credit sender's wallet (including fee refund)</li>
+                    <li>Mark original transaction as reversed</li>
+                    <li>Notify both parties</li>
+                  </ul>
+                  <div>
+                    <label className="label-text">Reason (optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Fraud reported, duplicate, customer request"
+                      value={reverseReason}
+                      onChange={(e) => setReverseReason(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={reversing}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleReverseTransaction}
+                disabled={reversing}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {reversing ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                Confirm Reversal
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }
@@ -98,7 +210,7 @@ const AdminTransactions = () => {
             </div>
             <div className="text-right shrink-0">
               <p className="text-xs font-semibold text-foreground">{tx.currency} {Number(tx.amount).toLocaleString()}</p>
-              <p className={`text-[10px] font-medium capitalize ${tx.status === "completed" ? "text-success" : tx.status === "pending" ? "text-warning" : "text-destructive"}`}>{tx.status}</p>
+              <p className={`text-[10px] font-medium capitalize ${tx.status === "completed" ? "text-success" : tx.status === "pending" ? "text-warning" : tx.status === "reversed" ? "text-warning" : "text-destructive"}`}>{tx.status}</p>
             </div>
             <ChevronRight size={14} className="text-muted-foreground shrink-0" />
           </button>
