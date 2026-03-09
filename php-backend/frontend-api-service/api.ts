@@ -2,15 +2,55 @@
  * AbanRemit API Service Layer
  * 
  * Drop-in replacement for Supabase client calls.
- * Configure API_BASE_URL to point to your PHP backend.
+ * Import: import { api } from '@/services/api';
  * 
- * Usage:
- *   import { api } from '@/services/api';
- *   const user = await api.auth.login(email, password);
- *   const transactions = await api.transactions.list();
+ * For production, set VITE_API_BASE_URL=https://abanremit.com/api/v1
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://abanremit.com/api/v1';
+
+// ─── Types ───
+export interface AppUser {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  walletNumber: string;
+  walletBalance: number;
+  currency: string;
+  avatarInitials: string;
+  role: 'user' | 'admin' | 'superadmin';
+  status: string;
+  kycStatus: string;
+  country: string;
+  createdAt: string;
+}
+
+export interface AuthResponse {
+  success: boolean;
+  token: string;
+  user: AppUser;
+}
+
+export interface TransferResult {
+  success: boolean;
+  reference: string;
+  amount: number;
+  fee: number;
+  currency: string;
+  recipient_name: string;
+  new_balance: number;
+  error?: string;
+}
+
+export interface RecipientLookup {
+  found: boolean;
+  name?: string;
+  wallet?: string;
+  user_id?: string;
+  avatar_url?: string;
+}
 
 class ApiClient {
   private token: string | null = null;
@@ -20,7 +60,9 @@ class ApiClient {
   }
 
   private async request<T>(method: string, path: string, body?: any, isFormData = false): Promise<T> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     if (!isFormData) headers['Content-Type'] = 'application/json';
 
@@ -32,20 +74,20 @@ class ApiClient {
 
     // Handle file downloads (CSV)
     const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('text/csv')) {
+    if (contentType.includes('text/csv') || contentType.includes('application/octet-stream')) {
       const blob = await res.blob();
       return { blob, filename: this.extractFilename(res) } as any;
     }
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || data.message || 'Request failed');
+    if (!res.ok) throw new Error(data.error || data.message || `Request failed (${res.status})`);
     return data;
   }
 
   private extractFilename(res: Response): string {
     const disposition = res.headers.get('content-disposition') || '';
-    const match = disposition.match(/filename=(.+)/);
-    return match ? match[1] : 'statement.csv';
+    const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    return match ? match[1].replace(/['"]/g, '') : 'statement.csv';
   }
 
   setToken(token: string | null) {
@@ -65,13 +107,13 @@ class ApiClient {
       currency?: string; city?: string; address?: string; gender?: string;
       date_of_birth?: string; pin?: string;
     }) => {
-      const res = await this.request<{ success: boolean; token: string; user: any }>('POST', '/auth/register', data);
+      const res = await this.request<AuthResponse>('POST', '/auth/register', data);
       this.setToken(res.token);
       return res;
     },
 
     login: async (email: string, password: string) => {
-      const res = await this.request<{ success: boolean; token: string; user: any }>('POST', '/auth/login', { email, password });
+      const res = await this.request<AuthResponse>('POST', '/auth/login', { email, password });
       this.setToken(res.token);
       return res;
     },
@@ -81,17 +123,17 @@ class ApiClient {
       this.setToken(null);
     },
 
-    me: () => this.request<any>('GET', '/auth/me'),
-    forgotPassword: (email: string) => this.request('POST', '/auth/forgot-password', { email }),
+    me: () => this.request<AppUser>('GET', '/auth/me'),
+    forgotPassword: (email: string) => this.request<{ success: boolean; message: string }>('POST', '/auth/forgot-password', { email }),
     resetPassword: (data: { token: string; email: string; password: string; password_confirmation: string }) =>
-      this.request('POST', '/auth/reset-password', data),
-    changePassword: (password: string) => this.request('PUT', '/auth/change-password', { password }),
+      this.request<{ success: boolean }>('POST', '/auth/reset-password', data),
+    changePassword: (password: string) => this.request<{ success: boolean }>('PUT', '/auth/change-password', { password }),
   };
 
   // ─── WALLET ───
   wallet = {
     get: () => this.request<any>('GET', '/wallet'),
-    setPin: (pin: string, current_pin?: string) => this.request('POST', '/wallet/set-pin', { pin, current_pin }),
+    setPin: (pin: string, current_pin?: string) => this.request<{ success: boolean }>('POST', '/wallet/set-pin', { pin, current_pin }),
     verifyPin: (pin: string) => this.request<{ valid: boolean }>('POST', '/wallet/verify-pin', { pin }),
   };
 
@@ -101,7 +143,7 @@ class ApiClient {
       this.request<any>('GET', `/transactions?limit=${params?.limit || 50}&page=${params?.page || 1}`),
 
     transfer: (data: { recipient_wallet?: string; recipient_phone?: string; amount: number; pin: string }) =>
-      this.request<any>('POST', '/transactions/transfer', data),
+      this.request<TransferResult>('POST', '/transactions/transfer', data),
 
     deposit: (data: { amount: number; method: 'card' | 'mpesa' | 'bank' }) =>
       this.request<any>('POST', '/transactions/deposit', data),
@@ -134,7 +176,6 @@ class ApiClient {
       this.request<any>('GET', `/statements/preview?from_date=${from_date}&to_date=${to_date}`),
     download: async (from_date: string, to_date: string, format: 'csv' | 'pdf' = 'csv') => {
       const result = await this.request<{ blob: Blob; filename: string }>('POST', '/statements/download', { from_date, to_date, format });
-      // Auto-download the file
       const url = URL.createObjectURL(result.blob);
       const a = document.createElement('a');
       a.href = url;
@@ -150,20 +191,20 @@ class ApiClient {
   // ─── RECIPIENTS ───
   recipients = {
     lookup: (lookup_type: 'wallet' | 'phone', lookup_value: string) =>
-      this.request<any>('POST', '/recipients/lookup', { lookup_type, lookup_value }),
+      this.request<RecipientLookup>('POST', '/recipients/lookup', { lookup_type, lookup_value }),
   };
 
   // ─── NOTIFICATIONS ───
   notifications = {
     list: () => this.request<any[]>('GET', '/notifications'),
-    markRead: (id: string) => this.request('PUT', `/notifications/${id}/read`),
+    markRead: (id: string) => this.request<{ success: boolean }>('PUT', `/notifications/${id}/read`),
   };
 
   // ─── PROFILE ───
   profile = {
     get: () => this.request<any>('GET', '/profile'),
-    update: (data: Record<string, string>) => this.request('PUT', '/profile', data),
-    uploadKyc: (formData: FormData) => this.request('POST', '/profile/kyc', formData, true),
+    update: (data: Record<string, string>) => this.request<any>('PUT', '/profile', data),
+    uploadKyc: (formData: FormData) => this.request<{ success: boolean }>('POST', '/profile/kyc', formData, true),
   };
 
   // ─── SUPPORT TICKETS ───
@@ -188,53 +229,53 @@ class ApiClient {
     dashboard: () => this.request<any>('GET', '/admin/dashboard'),
     users: () => this.request<any[]>('GET', '/admin/users'),
     userDetail: (id: string) => this.request<any>('GET', `/admin/users/${id}`),
-    updateUserStatus: (id: string, status: string) => this.request('PUT', `/admin/users/${id}/status`, { status }),
-    resetUserPassword: (id: string) => this.request('POST', `/admin/users/${id}/reset-password`),
-    resetUserPin: (id: string) => this.request('POST', `/admin/users/${id}/reset-pin`),
+    updateUserStatus: (id: string, status: string) => this.request<any>('PUT', `/admin/users/${id}/status`, { status }),
+    resetUserPassword: (id: string) => this.request<any>('POST', `/admin/users/${id}/reset-password`),
+    resetUserPin: (id: string) => this.request<any>('POST', `/admin/users/${id}/reset-pin`),
     transactions: () => this.request<any[]>('GET', '/admin/transactions'),
-    flagTransaction: (id: string) => this.request('POST', `/admin/transactions/${id}/flag`),
+    flagTransaction: (id: string) => this.request<any>('POST', `/admin/transactions/${id}/flag`),
     reverseTransaction: (id: string, reason?: string) =>
-      this.request('POST', `/admin/transactions/${id}/reverse`, { reason }),
+      this.request<any>('POST', `/admin/transactions/${id}/reverse`, { reason }),
     withdrawals: () => this.request<any[]>('GET', '/admin/withdrawals'),
-    updateWithdrawal: (id: string, status: string) => this.request('PUT', `/admin/withdrawals/${id}`, { status }),
+    updateWithdrawal: (id: string, status: string) => this.request<any>('PUT', `/admin/withdrawals/${id}`, { status }),
     pendingKyc: () => this.request<any[]>('GET', '/admin/kyc'),
-    updateKyc: (id: string, status: string) => this.request('PUT', `/admin/kyc/${id}`, { status }),
+    updateKyc: (id: string, status: string) => this.request<any>('PUT', `/admin/kyc/${id}`, { status }),
     sendNotification: (data: { user_id: string; title: string; message: string; type?: string }) =>
-      this.request('POST', '/admin/notifications', data),
+      this.request<any>('POST', '/admin/notifications', data),
     sendBulkNotification: (data: { title: string; message: string; type?: string; filter?: string; country?: string }) =>
-      this.request('POST', '/admin/notifications/bulk', data),
+      this.request<any>('POST', '/admin/notifications/bulk', data),
     sendBulkSms: (data: { message: string; filter?: string; country?: string; phone_numbers?: string[] }) =>
-      this.request('POST', '/admin/sms/bulk', data),
+      this.request<any>('POST', '/admin/sms/bulk', data),
     activityLogs: () => this.request<any[]>('GET', '/admin/logs'),
     securityAlerts: () => this.request<any[]>('GET', '/admin/security-alerts'),
-    resolveAlert: (id: string) => this.request('PUT', `/admin/security-alerts/${id}`),
+    resolveAlert: (id: string) => this.request<any>('PUT', `/admin/security-alerts/${id}`),
     supportTickets: () => this.request<any[]>('GET', '/admin/support-tickets'),
-    updateTicket: (id: string, status: string) => this.request('PUT', `/admin/support-tickets/${id}`, { status }),
+    updateTicket: (id: string, status: string) => this.request<any>('PUT', `/admin/support-tickets/${id}`, { status }),
 
     // Super Admin
     exchangeRates: {
       list: () => this.request<any[]>('GET', '/admin/exchange-rates'),
-      create: (data: any) => this.request('POST', '/admin/exchange-rates', data),
-      update: (id: string, data: any) => this.request('PUT', `/admin/exchange-rates/${id}`, data),
-      delete: (id: string) => this.request('DELETE', `/admin/exchange-rates/${id}`),
+      create: (data: any) => this.request<any>('POST', '/admin/exchange-rates', data),
+      update: (id: string, data: any) => this.request<any>('PUT', `/admin/exchange-rates/${id}`, data),
+      delete: (id: string) => this.request<any>('DELETE', `/admin/exchange-rates/${id}`),
     },
     fees: {
       list: () => this.request<any[]>('GET', '/admin/fees'),
-      create: (data: any) => this.request('POST', '/admin/fees', data),
-      update: (id: string, data: any) => this.request('PUT', `/admin/fees/${id}`, data),
+      create: (data: any) => this.request<any>('POST', '/admin/fees', data),
+      update: (id: string, data: any) => this.request<any>('PUT', `/admin/fees/${id}`, data),
     },
     paymentGateways: {
       list: () => this.request<any[]>('GET', '/admin/payment-gateways'),
-      update: (id: string, data: any) => this.request('PUT', `/admin/payment-gateways/${id}`, data),
+      update: (id: string, data: any) => this.request<any>('PUT', `/admin/payment-gateways/${id}`, data),
     },
     platformConfig: {
       list: () => this.request<any[]>('GET', '/admin/platform-config'),
-      update: (key: string, value: any) => this.request('PUT', '/admin/platform-config', { key, value }),
+      update: (key: string, value: any) => this.request<any>('PUT', '/admin/platform-config', { key, value }),
     },
     roles: {
       get: (userId: string) => this.request<any[]>('GET', `/admin/roles/${userId}`),
-      assign: (userId: string, role: string) => this.request('POST', '/admin/roles', { user_id: userId, role }),
-      remove: (id: string) => this.request('DELETE', `/admin/roles/${id}`),
+      assign: (userId: string, role: string) => this.request<any>('POST', '/admin/roles', { user_id: userId, role }),
+      remove: (id: string) => this.request<any>('DELETE', `/admin/roles/${id}`),
     },
   };
 }
