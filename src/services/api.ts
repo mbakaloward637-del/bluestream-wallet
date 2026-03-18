@@ -23,7 +23,9 @@ export interface AppUser {
   role: 'user' | 'admin' | 'superadmin';
   status: string;
   kycStatus: string;
+  kycRejectionReason?: string | null;
   country: string;
+  pinSet?: boolean;
   createdAt: string;
 }
 
