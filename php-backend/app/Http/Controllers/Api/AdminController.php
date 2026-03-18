@@ -425,17 +425,37 @@ class AdminController extends Controller
                 SmsService::send($profile->phone, "AbanRemit: Your KYC verification was rejected. Reason: {$request->reason}. Please login and re-upload your documents.");
             }
         } else {
+            // KYC APPROVED — Create wallet now
             $updates['kyc_rejection_reason'] = null;
+
+            $existingWallet = Wallet::where('user_id', $profile->user_id)->first();
+            $walletNumber = '';
+
+            if (!$existingWallet) {
+                // Determine currency from cached registration data or profile country
+                $currency = \Illuminate\Support\Facades\Cache::pull("pending_currency:{$profile->user_id}") ?: 'KES';
+                $pinHash = \Illuminate\Support\Facades\Cache::pull("pending_pin:{$profile->user_id}");
+
+                $wallet = Wallet::create([
+                    'user_id'       => $profile->user_id,
+                    'wallet_number' => Wallet::generateWalletNumber(),
+                    'currency'      => $currency,
+                    'pin_hash'      => $pinHash,
+                ]);
+                $walletNumber = $wallet->wallet_number;
+            } else {
+                $walletNumber = $existingWallet->wallet_number;
+            }
 
             Notification::create([
                 'user_id' => $profile->user_id,
-                'title'   => 'KYC Verified!',
-                'message' => 'Congratulations! Your identity has been verified. You now have full access to all features.',
+                'title'   => 'KYC Verified — Wallet Activated!',
+                'message' => "Congratulations! Your identity has been verified. Your wallet number is {$walletNumber}. You now have full access to all features.",
                 'type'    => 'info',
             ]);
 
             if ($profile->phone) {
-                SmsService::send($profile->phone, 'AbanRemit: Your KYC verification is approved! You now have full access to all features.');
+                SmsService::send($profile->phone, "AbanRemit: Your KYC is approved! Your wallet number is {$walletNumber}. You can now send, receive and withdraw money.");
             }
         }
 

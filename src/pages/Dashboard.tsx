@@ -102,6 +102,7 @@ const Dashboard = () => {
           currency={user.currency}
           walletNumber={user.walletNumber}
           userName={`${user.firstName} ${user.lastName}`}
+          kycStatus={user.kycStatus}
         />
 
         <div>

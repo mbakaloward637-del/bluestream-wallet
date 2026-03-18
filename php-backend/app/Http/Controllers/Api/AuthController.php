@@ -23,6 +23,9 @@ class AuthController extends Controller
 {
     /**
      * POST /api/v1/auth/register
+     * 
+     * Wallet is NOT created at registration. User must complete KYC first.
+     * Wallet is created when admin approves KYC.
      */
     public function register(Request $request)
     {
@@ -41,11 +44,11 @@ class AuthController extends Controller
             'phone'        => 'nullable|string|max:20|regex:/^[\+0-9\s\-]+$/',
             'country'      => 'nullable|string|max:100',
             'country_code' => 'nullable|string|max:5',
-            'currency'     => 'nullable|string|max:5|in:KES,USD,GBP,EUR',
+            'currency'     => 'nullable|string|max:5',
             'pin'          => 'nullable|string|min:4|max:6|regex:/^\d+$/',
             'city'         => 'nullable|string|max:100',
             'address'      => 'nullable|string|max:255',
-            'gender'       => 'nullable|string|in:male,female,other',
+            'gender'       => 'nullable|string|in:male,female,other,Male,Female,Other',
             'date_of_birth' => 'nullable|date|before:today',
         ], [
             'password.regex' => 'Password must contain uppercase, lowercase, number and special character.',
@@ -53,7 +56,11 @@ class AuthController extends Controller
 
         if ($v->fails()) return response()->json(['error' => $v->errors()->first()], 422);
 
-        $user = DB::transaction(function () use ($request) {
+        // Store pin temporarily for wallet creation upon KYC approval
+        $pinValue = $request->pin;
+        $currency = strtoupper(trim($request->currency ?? 'KES'));
+
+        $user = DB::transaction(function () use ($request, $currency, $pinValue) {
             $user = User::create([
                 'name' => trim($request->first_name . ' ' . $request->last_name),
                 'email' => strtolower(trim($request->email)),
@@ -71,19 +78,16 @@ class AuthController extends Controller
                 'country_code' => $request->country_code ?? 'KE',
                 'city'         => $request->city,
                 'address'      => $request->address,
-                'gender'       => $request->gender,
+                'gender'       => $request->gender ? strtolower($request->gender) : null,
                 'date_of_birth' => $request->date_of_birth,
             ]);
 
-            $wallet = Wallet::create([
-                'user_id'       => $user->id,
-                'wallet_number' => Wallet::generateWalletNumber(),
-                'currency'      => $request->currency ?? 'KES',
-            ]);
-
-            if ($request->pin) {
-                $wallet->setPin($request->pin);
+            // NO wallet creation here — wallet is created when KYC is approved
+            // Store pin hash and currency in a temporary cache for wallet creation
+            if ($pinValue) {
+                Cache::put("pending_pin:{$user->id}", Hash::make($pinValue), now()->addDays(30));
             }
+            Cache::put("pending_currency:{$user->id}", $currency, now()->addDays(30));
 
             UserRole::create(['user_id' => $user->id, 'role' => 'user']);
 
@@ -91,13 +95,13 @@ class AuthController extends Controller
             \App\Models\Notification::create([
                 'user_id' => $user->id,
                 'title'   => 'Welcome to AbanRemit!',
-                'message' => 'Your account has been created. Complete KYC verification to access all features.',
+                'message' => 'Your account has been created. Please upload your KYC documents (ID front, ID back, and selfie) to get your wallet activated.',
                 'type'    => 'info',
             ]);
 
             // Welcome SMS
             if ($request->phone) {
-                SmsService::send($request->phone, 'Welcome to AbanRemit! Your wallet number is ' . $wallet->wallet_number . '. Complete KYC to unlock all features.');
+                SmsService::send($request->phone, 'Welcome to AbanRemit! Please upload your KYC documents to activate your wallet and start transacting.');
             }
 
             ActivityLog::create([
@@ -344,7 +348,8 @@ class AuthController extends Controller
     }
 
     /**
-     * Build standardized user response data
+     * Build standardized user response data.
+     * If KYC is not approved, wallet info is hidden.
      */
     private function buildUserData(User $user): array
     {
@@ -356,23 +361,29 @@ class AuthController extends Controller
             substr($profile->first_name ?? '', 0, 1) . substr($profile->last_name ?? '', 0, 1)
         ) ?: '??';
 
+        $kycApproved = ($profile->kyc_status ?? 'pending') === 'approved';
+
+        // Currency comes from wallet if exists, otherwise from cached pending currency, fallback from country
+        $currency = $wallet->currency ?? Cache::get("pending_currency:{$user->id}", 'KES');
+
         return [
             'id'             => $user->id,
             'firstName'      => $profile->first_name ?? '',
             'lastName'       => $profile->last_name ?? '',
             'email'          => $profile->email ?? $user->email,
             'phone'          => $profile->phone ?? '',
-            'walletNumber'   => $wallet->wallet_number ?? '',
-            'walletBalance'  => (float)($wallet->balance ?? 0),
-            'currency'       => $wallet->currency ?? 'KES',
+            'walletNumber'   => $kycApproved && $wallet ? $wallet->wallet_number : '',
+            'walletBalance'  => $kycApproved && $wallet ? (float)($wallet->balance ?? 0) : 0.00,
+            'currency'       => $currency,
             'avatarInitials' => $initials,
             'avatarUrl'      => $profile->avatar_url ?? null,
             'role'           => $user->highestRole(),
             'status'         => $profile->status ?? 'active',
             'kycStatus'      => $profile->kyc_status ?? 'pending',
+            'kycRejectionReason' => $profile->kyc_rejection_reason ?? null,
             'country'        => $profile->country ?? 'Kenya',
             'countryCode'    => $profile->country_code ?? 'KE',
-            'pinSet'         => !empty($wallet->pin_hash),
+            'pinSet'         => $wallet ? !empty($wallet->pin_hash) : false,
             'createdAt'      => $profile->created_at ?? $user->created_at,
         ];
     }
