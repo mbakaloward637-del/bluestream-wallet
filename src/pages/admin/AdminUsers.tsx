@@ -46,7 +46,7 @@ const AdminUsers = () => {
             {[
               { label: "Email", value: selectedUser.email },
               { label: "Phone", value: selectedUser.phone || "—" },
-              { label: "Balance", value: `${selectedUser.currency || "KES"} ${Number(selectedUser.balance || 0).toLocaleString()}` },
+              { label: "Country", value: selectedUser.country },
               { label: "Country", value: selectedUser.country },
               { label: "KYC Status", value: selectedUser.kyc_status },
               { label: "Registered", value: new Date(selectedUser.created_at).toLocaleDateString() },
