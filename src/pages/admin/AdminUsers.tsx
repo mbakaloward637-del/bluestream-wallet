@@ -106,7 +106,7 @@ const AdminUsers = () => {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">{u.first_name} {u.last_name}</p>
-              <p className="text-[10px] text-muted-foreground">{u.wallet_number || ""} • {u.email}</p>
+              <p className="text-[10px] text-muted-foreground">{u.email}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${

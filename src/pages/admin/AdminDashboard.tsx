@@ -1,23 +1,24 @@
-import { Users, Wallet, TrendingUp, TrendingDown, Clock, UserCheck, ArrowLeftRight, Loader2 } from "lucide-react";
+import { Users, Wallet, TrendingUp, Clock, UserCheck, Loader2 } from "lucide-react";
 import { api } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
 
 const AdminDashboard = () => {
   const { data: stats, isLoading } = useQuery({
     queryKey: ["admin-stats"],
-    queryFn: async () => {
-      return await api.admin.dashboard();
-    },
+    queryFn: () => api.admin.dashboard(),
+  });
+
+  const { data: recentTxs = [] } = useQuery({
+    queryKey: ["admin-recent-txs"],
+    queryFn: () => api.admin.transactions({ limit: 10 }),
   });
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>;
 
   const statCards = [
-    { label: "Total Users", value: stats?.totalUsers || 0, icon: Users, bg: "bg-primary/10", color: "text-primary" },
-    { label: "Active Wallets", value: stats?.activeWallets || 0, icon: Wallet, bg: "bg-success/10", color: "text-success" },
-    { label: "Total Balance", value: `KES ${(stats?.totalBalance || 0).toLocaleString()}`, icon: TrendingUp, bg: "bg-success/10", color: "text-success" },
-    { label: "Pending KYC", value: stats?.pendingKyc || 0, icon: UserCheck, bg: "bg-warning/10", color: "text-warning" },
-    { label: "Pending Withdrawals", value: stats?.pendingWithdrawals || 0, icon: Clock, bg: "bg-warning/10", color: "text-warning" },
+    { label: "Total Users", value: stats?.total_users || 0, icon: Users, bg: "bg-primary/10", color: "text-primary" },
+    { label: "Total Balance", value: `KES ${(stats?.total_balance || 0).toLocaleString()}`, icon: TrendingUp, bg: "bg-success/10", color: "text-success" },
+    { label: "Pending Withdrawals", value: stats?.pending_withdrawals || 0, icon: Clock, bg: "bg-warning/10", color: "text-warning" },
   ];
 
   return (
@@ -38,18 +39,18 @@ const AdminDashboard = () => {
 
       <div className="section-card">
         <h3 className="text-sm font-semibold text-foreground mb-3">Latest Transactions</h3>
-        {(stats?.recentTransactions || []).length === 0 ? (
+        {recentTxs.length === 0 ? (
           <p className="text-xs text-muted-foreground text-center py-4">No transactions yet</p>
         ) : (
           <div className="space-y-0">
-            {(stats?.recentTransactions || []).map((tx: any) => (
+            {recentTxs.map((tx: any) => (
               <div key={tx.id} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-foreground truncate capitalize">{tx.type}</p>
                   <p className="text-[10px] text-muted-foreground">{new Date(tx.created_at).toLocaleString()}</p>
                 </div>
                 <div className="text-right shrink-0 ml-3">
-                  <p className="text-xs font-semibold text-foreground">KES {Number(tx.amount).toLocaleString()}</p>
+                  <p className="text-xs font-semibold text-foreground">{tx.currency} {Number(tx.amount).toLocaleString()}</p>
                   <p className={`text-[10px] font-medium capitalize ${tx.status === "completed" ? "text-success" : tx.status === "pending" ? "text-warning" : "text-destructive"}`}>{tx.status}</p>
                 </div>
               </div>
