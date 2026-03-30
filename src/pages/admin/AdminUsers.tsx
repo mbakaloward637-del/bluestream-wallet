@@ -20,7 +20,7 @@ const AdminUsers = () => {
     (u.first_name || "").toLowerCase().includes(search.toLowerCase()) ||
     (u.last_name || "").toLowerCase().includes(search.toLowerCase()) ||
     (u.email || "").toLowerCase().includes(search.toLowerCase()) ||
-    (u.wallet_number || "").toLowerCase().includes(search.toLowerCase())
+    (u.email || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const selectedUser = users.find((u: any) => u.user_id === selectedUserId || u.id === selectedUserId);
