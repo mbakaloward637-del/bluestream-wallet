@@ -20,7 +20,7 @@ const AdminUsers = () => {
     (u.first_name || "").toLowerCase().includes(search.toLowerCase()) ||
     (u.last_name || "").toLowerCase().includes(search.toLowerCase()) ||
     (u.email || "").toLowerCase().includes(search.toLowerCase()) ||
-    (u.wallet_number || "").toLowerCase().includes(search.toLowerCase())
+    (u.email || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const selectedUser = users.find((u: any) => u.user_id === selectedUserId || u.id === selectedUserId);
@@ -36,7 +36,7 @@ const AdminUsers = () => {
             </div>
             <div>
               <h2 className="text-lg font-bold text-foreground">{selectedUser.first_name} {selectedUser.last_name}</h2>
-              <p className="text-sm text-muted-foreground">{selectedUser.wallet_number || ""}</p>
+              <p className="text-sm text-muted-foreground">{selectedUser.email}</p>
             </div>
             <span className={`ml-auto text-[10px] font-semibold uppercase px-2 py-1 rounded-md ${
               selectedUser.status === "active" ? "bg-success/10 text-success" : selectedUser.status === "frozen" ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"
@@ -46,7 +46,7 @@ const AdminUsers = () => {
             {[
               { label: "Email", value: selectedUser.email },
               { label: "Phone", value: selectedUser.phone || "—" },
-              { label: "Balance", value: `${selectedUser.currency || "KES"} ${Number(selectedUser.balance || 0).toLocaleString()}` },
+              { label: "Country", value: selectedUser.country },
               { label: "Country", value: selectedUser.country },
               { label: "KYC Status", value: selectedUser.kyc_status },
               { label: "Registered", value: new Date(selectedUser.created_at).toLocaleDateString() },
@@ -106,7 +106,7 @@ const AdminUsers = () => {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">{u.first_name} {u.last_name}</p>
-              <p className="text-[10px] text-muted-foreground">{u.wallet_number || ""} • {u.email}</p>
+              <p className="text-[10px] text-muted-foreground">{u.email}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${

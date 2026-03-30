@@ -1,19 +1,31 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Lock, Loader2, CheckCircle } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import { api } from "@/services/api";
 import { toast } from "sonner";
 
 const ResetPassword = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [ready, setReady] = useState(false);
 
-  const token = searchParams.get("token") || "";
-  const email = searchParams.get("email") || "";
+  useEffect(() => {
+    // Listen for PASSWORD_RECOVERY event from the URL hash
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setReady(true);
+      }
+    });
+    // If already in a session (user clicked link), allow reset
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setReady(true);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleReset = async () => {
     if (!password || !confirmPassword) { toast.error("Please fill in both fields"); return; }
@@ -22,7 +34,7 @@ const ResetPassword = () => {
 
     setLoading(true);
     try {
-      await api.auth.resetPassword({ token, email, password, password_confirmation: confirmPassword });
+      await api.auth.resetPassword({ password });
       setSuccess(true);
     } catch (err: any) {
       toast.error(err.message || "Failed to reset password");
@@ -39,6 +51,17 @@ const ResetPassword = () => {
           <h1 className="text-xl font-bold text-foreground">Password Updated!</h1>
           <p className="text-sm text-muted-foreground">Your password has been reset successfully.</p>
           <button onClick={() => navigate("/login")} className="btn-primary">Go to Login</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!ready) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-5 py-8">
+        <div className="w-full max-w-sm space-y-6 text-center">
+          <Loader2 size={32} className="animate-spin text-primary mx-auto" />
+          <p className="text-sm text-muted-foreground">Verifying reset link...</p>
         </div>
       </div>
     );

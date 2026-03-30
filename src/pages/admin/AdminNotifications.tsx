@@ -22,7 +22,7 @@ const AdminNotifications = () => {
       const results: string[] = [];
 
       if (channels.includes("inapp")) {
-        await api.admin.sendBulkNotification({ title, message, type: "announcement", channels: ["inapp"] });
+        await api.admin.sendBulkNotification({ title, message, type: "announcement" });
         results.push("In-App: sent");
       }
 

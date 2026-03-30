@@ -44,7 +44,7 @@ const AdminTransactions = () => {
     if (!selected || !user) return;
     setReversing(true);
     try {
-      const result = await api.admin.reverseTransaction(selected.id, reverseReason.trim() || "Admin reversal");
+      const result = await api.admin.reverseTransaction(selected.id, reverseReason.trim() || "Admin reversal") as any;
       if (!result?.success) { toast.error(result?.error || "Reversal failed"); return; }
       toast.success(`Transaction reversed! Ref: ${result.reversal_reference}`);
       setReverseDialogOpen(false);
