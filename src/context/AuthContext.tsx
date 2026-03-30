@@ -1,9 +1,9 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { api } from "@/services/api";
 import type { AppUser } from "@/services/api";
 
 export type UserRole = "user" | "admin" | "superadmin";
-
 export type { AppUser };
 
 interface AuthContextType {
@@ -24,29 +24,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchUser = useCallback(async () => {
-    if (!api.isAuthenticated()) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
       const userData = await api.auth.me();
       setUser(userData);
     } catch {
       setUser(null);
-      api.setToken(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    api.onAuthStateChange((u) => {
-      if (!u) {
+    // Set up auth listener BEFORE getSession
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_OUT" || !session) {
         setUser(null);
+        setLoading(false);
+        return;
+      }
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        // Defer to avoid deadlocks with Supabase auth
+        setTimeout(() => fetchUser(), 100);
+      }
+      if (event === "PASSWORD_RECOVERY") {
+        // User clicked reset link — they'll be on /reset-password
       }
     });
+
     fetchUser();
+    return () => subscription.unsubscribe();
   }, [fetchUser]);
 
   // Poll for balance updates every 30s
@@ -116,9 +128,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const isSuperAdmin = user?.role === "superadmin";
 
   return (
-    <AuthContext.Provider
-      value={{ user, loading, login, register, logout, refreshUser, isAdmin, isSuperAdmin }}
-    >
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser, isAdmin, isSuperAdmin }}>
       {children}
     </AuthContext.Provider>
   );
@@ -126,8 +136,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
-  if (ctx === undefined) {
-    throw new Error("useAuth must be used within AuthProvider");
-  }
+  if (ctx === undefined) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 };
