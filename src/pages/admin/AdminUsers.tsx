@@ -36,7 +36,7 @@ const AdminUsers = () => {
             </div>
             <div>
               <h2 className="text-lg font-bold text-foreground">{selectedUser.first_name} {selectedUser.last_name}</h2>
-              <p className="text-sm text-muted-foreground">{selectedUser.wallet_number || ""}</p>
+              <p className="text-sm text-muted-foreground">{selectedUser.email}</p>
             </div>
             <span className={`ml-auto text-[10px] font-semibold uppercase px-2 py-1 rounded-md ${
               selectedUser.status === "active" ? "bg-success/10 text-success" : selectedUser.status === "frozen" ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"
